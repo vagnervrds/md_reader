@@ -531,19 +531,23 @@ html, body {
   flex: 1;
   overflow-y: auto;
   padding: 12px 20px 20px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
-  align-content: start;
+  align-content: flex-start;
 }
 
 .theme-card {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
+  width: calc(33.333% - 8px);
+  min-width: 200px;
   cursor: pointer;
   transition: border-color var(--transition), box-shadow var(--transition);
+  display: flex;
+  flex-direction: column;
 }
 
 .theme-card:hover {
@@ -562,25 +566,31 @@ html, body {
 
 .theme-card-img {
   width: 100%;
-  height: 110px;
+  height: 100px;
   object-fit: cover;
   background: var(--background-modifier-border);
   display: block;
+  border-radius: 8px 8px 0 0;
 }
 
 .theme-card-placeholder {
   width: 100%;
-  height: 110px;
+  height: 60px;
   background: var(--background-modifier-border);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
   font-size: 12px;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
 }
 
 .theme-card-body {
   padding: 10px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .theme-card-name {
@@ -588,18 +598,25 @@ html, body {
   font-weight: 600;
   color: var(--text-normal);
   margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .theme-card-author {
   font-size: 11px;
   color: var(--text-faint);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .theme-card-modes {
   display: flex;
   gap: 4px;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .theme-mode-tag {
@@ -615,6 +632,8 @@ html, body {
 .theme-card-actions {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
+  margin-top: auto;
 }
 
 .btn-sm {

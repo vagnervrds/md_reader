@@ -28,6 +28,12 @@
   let isModified = false;
   let previewTimeout = null;
 
+  const undoStack = [];
+  const redoStack = [];
+  const MAX_UNDO = 200;
+  let lastSnapshot = '';
+  let snapshotTimeout = null;
+
   let communityThemes = [];
   let installedThemes = [];
   let activeThemeName = null;
@@ -123,6 +129,9 @@
     btnSave.style.display = '';
     btnView.style.display = '';
     editorTextarea.value = content || '';
+    undoStack.length = 0;
+    redoStack.length = 0;
+    lastSnapshot = editorTextarea.value;
     updatePreview();
     updateStatus();
     editorTextarea.focus();
@@ -225,7 +234,10 @@
     await openFile(data.filePath);
   }
 
+  let formatMenuOpen = false;
+
   function showFormatMenu(x, y) {
+    formatMenuOpen = true;
     formatMenu.style.display = 'block';
     const mw = formatMenu.offsetWidth;
     const mh = formatMenu.offsetHeight;
@@ -235,14 +247,66 @@
     if (y + mh > wh) y = wh - mh - 8;
     formatMenu.style.left = x + 'px';
     formatMenu.style.top = y + 'px';
-    formatMenu.style.display = 'block';
   }
 
   function hideFormatMenu() {
+    formatMenuOpen = false;
     formatMenu.style.display = 'none';
   }
 
+  function saveSnapshot() {
+    const val = editorTextarea.value;
+    if (val === lastSnapshot) return;
+    undoStack.push({ text: lastSnapshot, selStart: editorTextarea.selectionStart, selEnd: editorTextarea.selectionEnd });
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+    redoStack.length = 0;
+    lastSnapshot = val;
+  }
+
+  function scheduleSnapshot() {
+    clearTimeout(snapshotTimeout);
+    snapshotTimeout = setTimeout(saveSnapshot, 400);
+  }
+
+  function forceSnapshot() {
+    clearTimeout(snapshotTimeout);
+    saveSnapshot();
+  }
+
+  function doUndo() {
+    if (undoStack.length === 0) return;
+    const current = editorTextarea.value;
+    if (current !== lastSnapshot) {
+      redoStack.push({ text: current, selStart: editorTextarea.selectionStart, selEnd: editorTextarea.selectionEnd });
+    }
+    const state = undoStack.pop();
+    lastSnapshot = state.text;
+    editorTextarea.value = state.text;
+    editorTextarea.selectionStart = editorTextarea.selectionEnd = state.selStart;
+    isModified = true;
+    updateStatus();
+    clearTimeout(previewTimeout);
+    previewTimeout = setTimeout(updatePreview, 150);
+  }
+
+  function doRedo() {
+    if (redoStack.length === 0) return;
+    const current = editorTextarea.value;
+    if (current !== lastSnapshot) {
+      undoStack.push({ text: current, selStart: editorTextarea.selectionStart, selEnd: editorTextarea.selectionEnd });
+    }
+    const state = redoStack.pop();
+    lastSnapshot = state.text;
+    editorTextarea.value = state.text;
+    editorTextarea.selectionStart = editorTextarea.selectionEnd = state.selStart;
+    isModified = true;
+    updateStatus();
+    clearTimeout(previewTimeout);
+    previewTimeout = setTimeout(updatePreview, 150);
+  }
+
   function wrapSelection(before, after) {
+    forceSnapshot();
     const start = editorTextarea.selectionStart;
     const end = editorTextarea.selectionEnd;
     const selected = editorTextarea.value.substring(start, end);
@@ -255,6 +319,7 @@
   }
 
   function insertAtCursor(text) {
+    forceSnapshot();
     const start = editorTextarea.selectionStart;
     editorTextarea.value = editorTextarea.value.substring(0, start) + text + editorTextarea.value.substring(editorTextarea.selectionEnd);
     editorTextarea.selectionStart = editorTextarea.selectionEnd = start + text.length;
@@ -263,6 +328,7 @@
   }
 
   function insertLinePrefix(prefix) {
+    forceSnapshot();
     const start = editorTextarea.selectionStart;
     const val = editorTextarea.value;
     const lineStart = val.lastIndexOf('\n', start - 1) + 1;
@@ -427,14 +493,19 @@
   editorTextarea.addEventListener('input', () => {
     isModified = true;
     updateStatus();
+    scheduleSnapshot();
     clearTimeout(previewTimeout);
     previewTimeout = setTimeout(updatePreview, 300);
   });
 
   editorTextarea.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveFile(); }
+    if (e.ctrlKey && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
+    if (e.ctrlKey && (e.key === 'z' || e.key === 'Z') && e.shiftKey) { e.preventDefault(); doRedo(); return; }
+    if (e.ctrlKey && e.key === 'y') { e.preventDefault(); doRedo(); return; }
+    if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveFile(); return; }
     if (e.key === 'Tab') {
       e.preventDefault();
+      forceSnapshot();
       const s = editorTextarea.selectionStart;
       editorTextarea.value = editorTextarea.value.substring(0, s) + '  ' + editorTextarea.value.substring(editorTextarea.selectionEnd);
       editorTextarea.selectionStart = editorTextarea.selectionEnd = s + 2;
@@ -445,17 +516,55 @@
   editorTextarea.addEventListener('contextmenu', (e) => {
     if (!editMode) return;
     e.preventDefault();
-    showFormatMenu(e.clientX, e.clientY);
+    e.stopPropagation();
+    if (!formatMenuOpen) showFormatMenu(e.clientX, e.clientY);
   });
 
-  editorTextarea.addEventListener('mouseup', () => {
+  editorTextarea.addEventListener('mouseup', (e) => {
     if (!editMode) return;
-    const hasSelection = editorTextarea.selectionStart !== editorTextarea.selectionEnd;
-    if (hasSelection) {
-      const rect = editorTextarea.getBoundingClientRect();
-      showFormatMenu(rect.left + 40, rect.top + 30);
-    }
+    setTimeout(() => {
+      const hasSelection = editorTextarea.selectionStart !== editorTextarea.selectionEnd;
+      if (hasSelection) {
+        e.preventDefault();
+        const rect = editorTextarea.getBoundingClientRect();
+        const lineH = parseFloat(getComputedStyle(editorTextarea).lineHeight) || 24;
+        const pos = getCaretPixelPos();
+        showFormatMenu(pos.x + rect.left + 20, pos.y + rect.top - 10);
+      }
+    }, 10);
   });
+
+  function getCaretPixelPos() {
+    const div = document.createElement('div');
+    const computed = getComputedStyle(editorTextarea);
+    const style = div.style;
+    style.position = 'absolute';
+    style.visibility = 'hidden';
+    style.whiteSpace = 'pre-wrap';
+    style.wordWrap = 'break-word';
+    style.font = computed.font;
+    style.letterSpacing = computed.letterSpacing;
+    style.padding = computed.padding;
+    style.width = computed.width;
+    style.height = computed.height;
+    style.border = computed.border;
+    style.lineHeight = computed.lineHeight;
+
+    const textBefore = editorTextarea.value.substring(0, editorTextarea.selectionStart);
+    const textNode = document.createTextNode(textBefore);
+    div.appendChild(textNode);
+
+    const span = document.createElement('span');
+    span.textContent = '|';
+    div.appendChild(span);
+
+    document.body.appendChild(div);
+    const x = span.offsetLeft - editorTextarea.scrollLeft;
+    const y = span.offsetTop - editorTextarea.scrollTop;
+    document.body.removeChild(div);
+
+    return { x, y };
+  }
 
   formatMenu.querySelectorAll('[data-format]').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -466,6 +575,12 @@
 
   document.addEventListener('click', (e) => {
     if (!formatMenu.contains(e.target)) hideFormatMenu();
+  });
+
+  document.addEventListener('contextmenu', (e) => {
+    if (formatMenuOpen && e.target === editorTextarea) {
+      e.preventDefault();
+    }
   });
 
   $('#btn-theme').addEventListener('click', () => {
