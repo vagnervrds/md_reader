@@ -7,6 +7,7 @@ const { markedHighlight } = require('marked-highlight');
 const hljs = require('highlight.js');
 const RecentFile = require('./database/models/RecentFile');
 const Setting = require('./database/models/Setting');
+const log = require('./logger');
 
 marked.use(markedHighlight({
   langPrefix: 'hljs language-',
@@ -28,6 +29,17 @@ const COMMUNITY_THEMES_URL = 'https://raw.githubusercontent.com/obsidianmd/obsid
 if (!fs.existsSync(THEMES_DIR)) {
   fs.mkdirSync(THEMES_DIR, { recursive: true });
 }
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    if (req.path.startsWith('/api/')) {
+      log.info(`${req.method} ${req.path} ${res.statusCode} ${ms}ms`);
+    }
+  });
+  next();
+});
 
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
@@ -55,8 +67,10 @@ app.get('/api/themes/community', async (req, res) => {
     const themes = await fetchJson(COMMUNITY_THEMES_URL);
     communityThemesCache = themes;
     communityThemesCacheTime = now;
+    log.info('Community themes fetched', { count: themes.length });
     res.json(themes);
   } catch (err) {
+    log.error('Failed to fetch community themes', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -69,15 +83,12 @@ app.get('/api/themes/installed', async (req, res) => {
     for (const file of files) {
       const themeName = file.replace('.css', '');
       const stat = fs.statSync(path.join(THEMES_DIR, file));
-      installed.push({
-        name: themeName,
-        file: file,
-        installedAt: stat.mtime
-      });
+      installed.push({ name: themeName, file, installedAt: stat.mtime });
     }
 
     res.json(installed);
   } catch (err) {
+    log.error('Failed to list installed themes', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -114,16 +125,20 @@ app.post('/api/themes/install', async (req, res) => {
       return res.status(400).json({ error: 'repo and name are required' });
     }
 
+    log.info('Installing theme', { name, repo, branch });
     const themePath = path.join(THEMES_DIR, `${name}.css`);
     const cssContent = await fetchThemeCss(repo, branch || null);
 
     if (!cssContent) {
+      log.warn('Theme CSS not found', { name, repo });
       return res.status(404).json({ error: 'Theme CSS not found in repository' });
     }
 
     fs.writeFileSync(themePath, cssContent, 'utf-8');
+    log.info('Theme installed', { name, size: cssContent.length });
     res.json({ success: true, name, file: `${name}.css` });
   } catch (err) {
+    log.error('Failed to install theme', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -141,8 +156,10 @@ app.delete('/api/themes/:name', async (req, res) => {
     }
 
     fs.unlinkSync(themePath);
+    log.info('Theme removed', { name: req.params.name });
     res.json({ success: true });
   } catch (err) {
+    log.error('Failed to remove theme', { name: req.params.name, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -152,6 +169,7 @@ app.get('/api/themes/active', async (req, res) => {
     const setting = await Setting.findByPk('active_theme');
     res.json({ name: setting ? setting.value : null });
   } catch (err) {
+    log.error('Failed to get active theme', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -166,8 +184,10 @@ app.put('/api/themes/active', async (req, res) => {
       }
     }
     await Setting.upsert({ key: 'active_theme', value: name || '' });
+    log.info('Active theme set', { name: name || 'none' });
     res.json({ success: true, name: name || null });
   } catch (err) {
+    log.error('Failed to set active theme', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -188,8 +208,10 @@ app.get('/api/file-raw', async (req, res) => {
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
 
     const content = fs.readFileSync(filePath, 'utf-8');
+    log.info('File raw loaded', { path: filePath });
     res.json({ content });
   } catch (err) {
+    log.error('Failed to read file raw', { path: req.query.path, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -211,8 +233,10 @@ app.put('/api/file', async (req, res) => {
       await RecentFile.create({ path: filePath, name });
     }
 
+    log.info('File saved', { path: filePath, size: content.length });
     res.json({ success: true, name, html });
   } catch (err) {
+    log.error('Failed to save file', { path: req.body.path, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -234,8 +258,10 @@ app.post('/api/file-new', async (req, res) => {
     const name = path.basename(filePath);
     await RecentFile.create({ path: filePath, name });
 
+    log.info('New file created', { path: filePath });
     res.json({ success: true, name, path: filePath });
   } catch (err) {
+    log.error('Failed to create file', { path: req.body.path, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -248,9 +274,14 @@ app.get('/api/save-dialog', async (req, res) => {
     const psCmd = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Markdown Files|*.md;*.markdown|All Files|*.*'; $d.Title = 'Salvar como'; $d.FileName = 'novo_arquivo.md'; if ($d.ShowDialog() -eq 'OK') { $d.FileName } else { '' }`;
     const filePath = execSync(`powershell -NoProfile -Command "${psCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
 
-    if (!filePath) return res.json({ cancelled: true });
+    if (!filePath) {
+      log.info('Save dialog cancelled');
+      return res.json({ cancelled: true });
+    }
+    log.info('Save dialog selected', { path: filePath });
     res.json({ filePath });
   } catch (err) {
+    log.error('Save dialog failed', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -263,6 +294,7 @@ app.get('/api/recent-files', async (req, res) => {
     });
     res.json(files);
   } catch (err) {
+    log.error('Failed to list recent files', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -283,6 +315,7 @@ app.post('/api/recent-files', async (req, res) => {
       res.json(newFile);
     }
   } catch (err) {
+    log.error('Failed to update recent file', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -292,6 +325,7 @@ app.delete('/api/recent-files/:id', async (req, res) => {
     await RecentFile.destroy({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (err) {
+    log.error('Failed to remove recent file', { id: req.params.id, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -301,7 +335,10 @@ app.get('/api/file', async (req, res) => {
     const filePath = req.query.path;
     if (!filePath) return res.status(400).json({ error: 'path is required' });
 
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    if (!fs.existsSync(filePath)) {
+      log.warn('File not found', { path: filePath });
+      return res.status(404).json({ error: 'File not found' });
+    }
 
     const content = fs.readFileSync(filePath, 'utf-8');
     const html = marked.parse(content);
@@ -314,8 +351,10 @@ app.get('/api/file', async (req, res) => {
       await RecentFile.create({ path: filePath, name });
     }
 
+    log.info('File opened', { path: filePath, size: content.length });
     res.json({ name, path: filePath, html });
   } catch (err) {
+    log.error('Failed to open file', { path: req.query.path, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -336,7 +375,9 @@ app.get('/api/search', async (req, res) => {
         try {
           const content = fs.readFileSync(file.path, 'utf-8').toLowerCase();
           contentMatch = content.includes(q);
-        } catch (_) {}
+        } catch (readErr) {
+          log.warn('Failed to read file for search', { path: file.path, error: readErr.message });
+        }
       }
 
       if (nameMatch || contentMatch) {
@@ -350,8 +391,10 @@ app.get('/api/search', async (req, res) => {
       }
     }
 
+    log.info('Search performed', { query: q, results: results.length });
     res.json(results);
   } catch (err) {
+    log.error('Search failed', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -361,6 +404,7 @@ app.get('/api/settings/:key', async (req, res) => {
     const setting = await Setting.findByPk(req.params.key);
     res.json({ key: req.params.key, value: setting ? setting.value : null });
   } catch (err) {
+    log.error('Failed to get setting', { key: req.params.key, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -369,8 +413,10 @@ app.put('/api/settings/:key', async (req, res) => {
   try {
     const { value } = req.body;
     await Setting.upsert({ key: req.params.key, value });
+    log.info('Setting updated', { key: req.params.key });
     res.json({ key: req.params.key, value });
   } catch (err) {
+    log.error('Failed to update setting', { key: req.params.key, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -388,11 +434,21 @@ app.get('/api/open-dialog', async (req, res) => {
       return res.status(501).json({ error: 'Dialog not supported on this platform' });
     }
 
-    if (!filePath) return res.json({ cancelled: true });
+    if (!filePath) {
+      log.info('Open dialog cancelled');
+      return res.json({ cancelled: true });
+    }
+    log.info('Open dialog selected', { path: filePath });
     res.json({ filePath });
   } catch (err) {
+    log.error('Open dialog failed', { error: err.message, stack: err.stack });
     res.status(500).json({ error: err.message });
   }
+});
+
+app.use((err, req, res, next) => {
+  log.error('Unhandled error', { method: req.method, path: req.path, error: err.message, stack: err.stack });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 module.exports = app;
