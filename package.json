@@ -1,0 +1,29 @@
+{
+  "name": "mdreader",
+  "version": "1.0.0",
+  "description": "Leitor de Markdown leve com interface web",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "bin": "src/index.js",
+  "pkg": {
+    "assets": [
+      "src/public/**/*"
+    ],
+    "outputPath": "build"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "highlight.js": "^11.11.1",
+    "marked": "^15.0.7",
+    "marked-highlight": "^2.2.1",
+    "opn": "^6.0.0",
+    "sequelize": "^6.37.6",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
