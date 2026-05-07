@@ -23,7 +23,14 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const THEMES_DIR = path.join(__dirname, '..', 'themes');
+function getAppDir() {
+  if (process.pkg) {
+    return path.dirname(process.execPath);
+  }
+  return path.join(__dirname, '..');
+}
+
+const THEMES_DIR = path.join(getAppDir(), 'themes');
 const COMMUNITY_THEMES_URL = 'https://raw.githubusercontent.com/obsidianmd/obsidian-releases/master/community-css-themes.json';
 
 if (!fs.existsSync(THEMES_DIR)) {
@@ -272,7 +279,8 @@ app.get('/api/save-dialog', async (req, res) => {
     if (process.platform !== 'win32') return res.status(501).json({ error: 'Not supported' });
 
     const psCmd = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Markdown Files|*.md;*.markdown|All Files|*.*'; $d.Title = 'Salvar como'; $d.FileName = 'novo_arquivo.md'; if ($d.ShowDialog() -eq 'OK') { $d.FileName } else { '' }`;
-    const filePath = execSync(`powershell -NoProfile -Command "${psCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
+    const fullCmd = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${psCmd}`;
+    const filePath = execSync(`powershell -NoProfile -Command "${fullCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
 
     if (!filePath) {
       log.info('Save dialog cancelled');
@@ -429,7 +437,8 @@ app.get('/api/open-dialog', async (req, res) => {
     let filePath;
     if (isWindows) {
       const psCmd = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = 'Markdown Files|*.md;*.markdown|All Files|*.*'; $d.Title = 'Open Markdown File'; if ($d.ShowDialog() -eq 'OK') { $d.FileName } else { '' }`;
-      filePath = execSync(`powershell -NoProfile -Command "${psCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
+      const fullCmd = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${psCmd}`;
+      filePath = execSync(`powershell -NoProfile -Command "${fullCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
     } else {
       return res.status(501).json({ error: 'Dialog not supported on this platform' });
     }

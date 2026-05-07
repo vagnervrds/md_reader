@@ -7,8 +7,9 @@ const app = require('./server');
 const PORT = 4181;
 
 async function initDatabase() {
-  const dataDir = path.join(__dirname, '..', 'data');
-  const themesDir = path.join(__dirname, '..', 'themes');
+  const appDir = process.pkg ? path.dirname(process.execPath) : path.join(__dirname, '..');
+  const dataDir = path.join(appDir, 'data');
+  const themesDir = path.join(appDir, 'themes');
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
   if (!fs.existsSync(themesDir)) fs.mkdirSync(themesDir, { recursive: true });
 
