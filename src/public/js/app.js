@@ -22,6 +22,7 @@
   const formatMenu = $('#format-menu');
 
   let currentPath = null;
+  let currentId = null;
   let searchTimeout = null;
   let themeSearchTimeout = null;
   let editMode = false;
@@ -214,11 +215,33 @@
     exitEditMode();
     const data = await api(`/api/file?path=${encodeURIComponent(filePath)}`);
     if (data.error) { viewer.innerHTML = `<div class="welcome"><p>Erro: ${escapeHtml(data.error)}</p></div>`; return; }
+    currentId = data.id || null;
     viewer.innerHTML = data.html;
     topbarTitle.textContent = data.name;
     document.title = `${data.name} - mdreader`;
+    if (currentId) history.replaceState(null, '', `/file/${currentId}`);
     viewer.querySelectorAll('pre code').forEach((block) => { if (window.hljs) window.hljs.highlightElement(block); });
     loadRecentFiles();
+  }
+
+  async function openFileById(id) {
+    if (isModified && editMode) { if (!confirm('Arquivo modificado. Descartar?')) return; }
+    exitEditMode();
+    const data = await api(`/api/file/${id}`);
+    if (data.error) { viewer.innerHTML = `<div class="welcome"><p>Erro: ${escapeHtml(data.error)}</p></div>`; return; }
+    currentPath = data.path;
+    currentId = data.id;
+    viewer.innerHTML = data.html;
+    topbarTitle.textContent = data.name;
+    document.title = `${data.name} - mdreader`;
+    history.replaceState(null, '', `/file/${data.id}`);
+    viewer.querySelectorAll('pre code').forEach((block) => { if (window.hljs) window.hljs.highlightElement(block); });
+    loadRecentFiles();
+  }
+
+  async function reloadCurrentFile() {
+    if (currentId) { await openFileById(currentId); }
+    else if (currentPath) { await openFile(currentPath); }
   }
 
   async function searchFiles(query) {
@@ -591,6 +614,7 @@
   $('#btn-toggle-sidebar').addEventListener('click', () => sidebar.classList.toggle('collapsed'));
   $('#btn-open-themes').addEventListener('click', openThemesModal);
   $('#modal-close').addEventListener('click', closeThemesModal);
+  $('#btn-reload').addEventListener('click', reloadCurrentFile);
 
   modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeThemesModal(); });
 
@@ -624,4 +648,9 @@
 
   loadTheme();
   loadRecentFiles();
+
+  const fileMatch = window.location.pathname.match(/^\/file\/(\d+)$/);
+  if (fileMatch) {
+    openFileById(fileMatch[1]);
+  }
 })();

@@ -355,16 +355,43 @@ app.get('/api/file', async (req, res) => {
     const existing = await RecentFile.findOne({ where: { path: filePath } });
     if (existing) {
       await existing.update({ last_opened: new Date() });
+      res.json({ id: existing.id, name, path: filePath, html });
     } else {
-      await RecentFile.create({ path: filePath, name });
+      const newFile = await RecentFile.create({ path: filePath, name });
+      res.json({ id: newFile.id, name, path: filePath, html });
     }
 
     log.info('File opened', { path: filePath, size: content.length });
-    res.json({ name, path: filePath, html });
   } catch (err) {
     log.error('Failed to open file', { path: req.query.path, error: err.message });
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/file/:id', async (req, res) => {
+  try {
+    const file = await RecentFile.findByPk(req.params.id);
+    if (!file) return res.status(404).json({ error: 'File not found in database' });
+
+    if (!fs.existsSync(file.path)) {
+      return res.status(404).json({ error: 'File not found on disk' });
+    }
+
+    const content = fs.readFileSync(file.path, 'utf-8');
+    const html = marked.parse(content);
+
+    await file.update({ last_opened: new Date() });
+
+    log.info('File opened by id', { id: file.id, path: file.path, size: content.length });
+    res.json({ id: file.id, name: file.name, path: file.path, html });
+  } catch (err) {
+    log.error('Failed to open file by id', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/file/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/api/search', async (req, res) => {
