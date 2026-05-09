@@ -885,12 +885,58 @@ html, body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-tags-header:hover {
+  color: var(--text-muted);
+}
+
+.tag-toggle-icon {
+  font-size: 9px;
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+
+.sidebar-tags-header.expanded .tag-toggle-icon {
+  transform: rotate(90deg);
+}
+
+.sidebar-tags-body {
+  overflow: hidden;
+}
+
+.tag-search-input {
+  width: 100%;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 11px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color var(--transition);
+}
+
+.tag-search-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.tag-search-input::placeholder {
+  color: var(--text-faint);
 }
 
 .tag-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.tag-chip.hidden {
+  display: none;
 }
 
 .tag-chip {

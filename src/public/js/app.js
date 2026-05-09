@@ -21,6 +21,9 @@
   const btnView = $('#btn-view');
   const formatMenu = $('#format-menu');
   const sidebarTagsSection = $('#sidebar-tags-section');
+  const sidebarTagsToggle = $('#sidebar-tags-toggle');
+  const sidebarTagsBody = $('#sidebar-tags-body');
+  const tagSearchInput = $('#tag-search-input');
   const tagChips = $('#tag-chips');
   const tagFilterBar = $('#tag-filter-bar');
   const tagFilterChip = $('#tag-filter-chip');
@@ -53,6 +56,41 @@
   let fileTagsMap = {};
   let activeTagFilter = null;
   let displayedFiles = [];
+  let tagsExpanded = false;
+
+  function toggleTagsSection() {
+    tagsExpanded = !tagsExpanded;
+    sidebarTagsBody.style.display = tagsExpanded ? '' : 'none';
+    sidebarTagsToggle.classList.toggle('expanded', tagsExpanded);
+    if (tagsExpanded) {
+      tagSearchInput.value = '';
+      filterTagChips('');
+      tagSearchInput.focus();
+    }
+  }
+
+  sidebarTagsToggle.addEventListener('click', toggleTagsSection);
+
+  tagSearchInput.addEventListener('click', function (e) {
+    e.stopPropagation();
+  });
+
+  tagSearchInput.addEventListener('input', function () {
+    filterTagChips(this.value);
+  });
+
+  tagChips.addEventListener('click', function (e) {
+    e.stopPropagation();
+  });
+
+  function filterTagChips(query) {
+    const q = query.trim().toLowerCase();
+    const chips = tagChips.querySelectorAll('.tag-chip');
+    chips.forEach(function (chip) {
+      const match = !q || chip.textContent.toLowerCase().indexOf(q) !== -1;
+      chip.classList.toggle('hidden', !match);
+    });
+  }
 
   async function api(url, opts) {
     const res = await fetch(url, opts);
@@ -144,6 +182,9 @@
         }
       });
       tagChips.appendChild(chip);
+    }
+    if (tagSearchInput) {
+      filterTagChips(tagSearchInput.value);
     }
   }
 

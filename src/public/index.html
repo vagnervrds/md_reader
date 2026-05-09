@@ -26,10 +26,14 @@
         <input type="text" id="search-input" placeholder="Buscar arquivos..." autocomplete="off">
       </div>
       <div class="sidebar-tags-section" id="sidebar-tags-section" style="display:none">
-        <div class="sidebar-tags-header">
+        <div class="sidebar-tags-header" id="sidebar-tags-toggle">
           <span>Tags</span>
+          <span class="tag-toggle-icon" id="tag-toggle-icon">&#9654;</span>
         </div>
-        <div class="tag-chips" id="tag-chips"></div>
+        <div class="sidebar-tags-body" id="sidebar-tags-body" style="display:none">
+          <input type="text" class="tag-search-input" id="tag-search-input" placeholder="Buscar tag..." autocomplete="off" spellcheck="false">
+          <div class="tag-chips" id="tag-chips"></div>
+        </div>
       </div>
       <div class="tag-filter-bar" id="tag-filter-bar" style="display:none">
         <span class="tag-filter-label">Filtrando:</span>
