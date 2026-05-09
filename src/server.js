@@ -7,7 +7,22 @@ const { markedHighlight } = require('marked-highlight');
 const hljs = require('highlight.js');
 const RecentFile = require('./database/models/RecentFile');
 const Setting = require('./database/models/Setting');
+const MonitoredFolder = require('./database/models/MonitoredFolder');
+const IndexedFile = require('./database/models/IndexedFile');
+const Tag = require('./database/models/Tag');
+const FileTag = require('./database/models/FileTag');
 const log = require('./logger');
+const scannerBridge = require('./scanner-bridge');
+
+const TAG_COLORS = ['#6c8cff', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#e91e63', '#00bcd4'];
+
+function getTagColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
+}
 
 marked.use(markedHighlight({
   langPrefix: 'hljs language-',
@@ -478,6 +493,306 @@ app.get('/api/open-dialog', async (req, res) => {
     res.json({ filePath });
   } catch (err) {
     log.error('Open dialog failed', { error: err.message, stack: err.stack });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/folder-dialog', async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+    if (process.platform !== 'win32') return res.status(501).json({ error: 'Not supported' });
+
+    const psCmd = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.ValidateNames = $false; $d.CheckFileExists = $false; $d.CheckPathExists = $false; $d.FileName = 'Cole o caminho da pasta aqui'; $d.Title = 'Selecionar pasta para monitorar'; $d.Filter = 'Todos|*.*'; if ($d.ShowDialog() -eq 'OK') { $p = $d.FileName; if (Test-Path -LiteralPath $p -PathType Container) { $p } elseif (Test-Path -LiteralPath (Split-Path $p) -PathType Container) { Split-Path $p } else { $p } } else { '' }`;
+    const fullCmd = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${psCmd}`;
+    const folderPath = execSync(`powershell -NoProfile -Command "${fullCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
+
+    if (!folderPath) {
+      return res.json({ cancelled: true });
+    }
+    log.info('Folder dialog selected', { path: folderPath });
+    res.json({ folderPath });
+  } catch (err) {
+    log.error('Folder dialog failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/folders', async (req, res) => {
+  try {
+    const folders = await MonitoredFolder.findAll({ order: [['id', 'DESC']] });
+    const result = [];
+    for (const folder of folders) {
+      const fileCount = await IndexedFile.count({ where: { folderId: folder.id } });
+      result.push({
+        id: folder.id,
+        path: folder.path,
+        includeSubfolders: folder.includeSubfolders,
+        active: folder.active,
+        lastScanned: folder.lastScanned,
+        fileCount
+      });
+    }
+    res.json(result);
+  } catch (err) {
+    log.error('Failed to list folders', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/folders', async (req, res) => {
+  try {
+    const { folderPath, includeSubfolders } = req.body;
+    if (!folderPath) return res.status(400).json({ error: 'folderPath is required' });
+    if (!fs.existsSync(folderPath)) return res.status(400).json({ error: 'Folder does not exist' });
+
+    const existing = await MonitoredFolder.findOne({ where: { path: folderPath } });
+    if (existing) return res.status(409).json({ error: 'Folder already monitored' });
+
+    const folder = await MonitoredFolder.create({
+      path: folderPath,
+      includeSubfolders: includeSubfolders === true
+    });
+
+    log.info('Folder added', { path: folderPath });
+    scannerBridge.send({ type: 'reload' });
+    res.json({ id: folder.id, path: folder.path, includeSubfolders: folder.includeSubfolders, active: folder.active, fileCount: 0 });
+  } catch (err) {
+    log.error('Failed to add folder', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/folders/:id', async (req, res) => {
+  try {
+    const folder = await MonitoredFolder.findByPk(req.params.id);
+    if (!folder) return res.status(404).json({ error: 'Folder not found' });
+
+    const updates = {};
+    if (req.body.includeSubfolders !== undefined) updates.includeSubfolders = req.body.includeSubfolders;
+    if (req.body.active !== undefined) updates.active = req.body.active;
+    if (Object.keys(updates).length > 0) await folder.update(updates);
+
+    scannerBridge.send({ type: 'reload' });
+    res.json({ success: true });
+  } catch (err) {
+    log.error('Failed to update folder', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/folders/:id', async (req, res) => {
+  try {
+    const folder = await MonitoredFolder.findByPk(req.params.id);
+    if (!folder) return res.status(404).json({ error: 'Folder not found' });
+
+    await IndexedFile.destroy({ where: { folderId: folder.id } });
+    await folder.destroy();
+
+    log.info('Folder removed', { id: req.params.id, path: folder.path });
+    scannerBridge.send({ type: 'reload' });
+    res.json({ success: true });
+  } catch (err) {
+    log.error('Failed to remove folder', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/folders/scan', async (req, res) => {
+  try {
+    res.json({ success: true });
+    scannerBridge.send({ type: 'scan-all' });
+  } catch (err) {
+    log.error('Manual scan failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tags', async (req, res) => {
+  try {
+    const tags = await Tag.findAll({ order: [['name', 'ASC']] });
+    const result = [];
+    for (const tag of tags) {
+      const fileCount = await FileTag.count({ where: { tagId: tag.id } });
+      result.push({ id: tag.id, name: tag.name, color: tag.color, fileCount });
+    }
+    res.json(result);
+  } catch (err) {
+    log.error('Failed to list tags', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tags', async (req, res) => {
+  try {
+    const { name, color } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'name is required' });
+
+    const existing = await Tag.findOne({ where: { name: name.trim() } });
+    if (existing) return res.status(409).json({ error: 'Tag already exists' });
+
+    const tag = await Tag.create({ name: name.trim(), color: color || '#6c8cff' });
+    log.info('Tag created', { name: tag.name });
+    res.json({ id: tag.id, name: tag.name, color: tag.color, fileCount: 0 });
+  } catch (err) {
+    log.error('Failed to create tag', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/tags/:id', async (req, res) => {
+  try {
+    const tag = await Tag.findByPk(req.params.id);
+    if (!tag) return res.status(404).json({ error: 'Tag not found' });
+
+    if (req.body.name !== undefined) tag.name = req.body.name.trim();
+    if (req.body.color !== undefined) tag.color = req.body.color;
+    await tag.save();
+
+    log.info('Tag updated', { id: tag.id, name: tag.name });
+    res.json({ id: tag.id, name: tag.name, color: tag.color });
+  } catch (err) {
+    log.error('Failed to update tag', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/tags/:id', async (req, res) => {
+  try {
+    const tag = await Tag.findByPk(req.params.id);
+    if (!tag) return res.status(404).json({ error: 'Tag not found' });
+
+    await FileTag.destroy({ where: { tagId: tag.id } });
+    await tag.destroy();
+
+    log.info('Tag deleted', { id: req.params.id, name: tag.name });
+    res.json({ success: true });
+  } catch (err) {
+    log.error('Failed to delete tag', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tags/file', async (req, res) => {
+  try {
+    const filePath = req.query.path;
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
+
+    const fileTags = await FileTag.findAll({ where: { filePath } });
+    const tags = [];
+    for (const ft of fileTags) {
+      const tag = await Tag.findByPk(ft.tagId);
+      if (tag) tags.push({ id: tag.id, name: tag.name, color: tag.color });
+    }
+    res.json(tags);
+  } catch (err) {
+    log.error('Failed to get file tags', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tags/file', async (req, res) => {
+  try {
+    const { filePath, tagId } = req.body;
+    if (!filePath || !tagId) return res.status(400).json({ error: 'filePath and tagId are required' });
+
+    const tag = await Tag.findByPk(tagId);
+    if (!tag) return res.status(404).json({ error: 'Tag not found' });
+
+    const existing = await FileTag.findOne({ where: { filePath, tagId } });
+    if (existing) return res.json({ id: existing.id, tagId, filePath });
+
+    const fileTag = await FileTag.create({ filePath, tagId });
+    log.info('Tag added to file', { filePath, tagId });
+    res.json({ id: fileTag.id, tagId, filePath });
+  } catch (err) {
+    log.error('Failed to add tag to file', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/tags/file', async (req, res) => {
+  try {
+    const { filePath, tagId } = req.body;
+    if (!filePath || !tagId) return res.status(400).json({ error: 'filePath and tagId are required' });
+
+    await FileTag.destroy({ where: { filePath, tagId } });
+    log.info('Tag removed from file', { filePath, tagId });
+    res.json({ success: true });
+  } catch (err) {
+    log.error('Failed to remove tag from file', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tags/all-file-tags', async (req, res) => {
+  try {
+    const fileTags = await FileTag.findAll();
+    const tags = await Tag.findAll();
+    const tagMap = {};
+    tags.forEach(t => { tagMap[t.id] = t; });
+
+    const result = fileTags.map(ft => ({
+      filePath: ft.filePath,
+      tagId: ft.tagId,
+      tagName: tagMap[ft.tagId] ? tagMap[ft.tagId].name : '',
+      tagColor: tagMap[ft.tagId] ? tagMap[ft.tagId].color : '#6c8cff'
+    }));
+
+    res.json(result);
+  } catch (err) {
+    log.error('Failed to get all file tags', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tags/:id/files', async (req, res) => {
+  try {
+    const fileTags = await FileTag.findAll({ where: { tagId: req.params.id } });
+    const files = [];
+    for (const ft of fileTags) {
+      if (fs.existsSync(ft.filePath)) {
+        files.push({ path: ft.filePath, name: path.basename(ft.filePath) });
+      }
+    }
+    res.json(files);
+  } catch (err) {
+    log.error('Failed to get files for tag', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tags/set-file-tags', async (req, res) => {
+  try {
+    const { filePath, tags } = req.body;
+    if (!filePath) return res.status(400).json({ error: 'filePath is required' });
+
+    const tagNames = [...new Set((tags || []).map(t => t.trim().toLowerCase()).filter(t => t.length > 0))];
+
+    const tagRecords = [];
+    for (const name of tagNames) {
+      const [tag] = await Tag.findOrCreate({
+        where: { name },
+        defaults: { name, color: getTagColor(name) }
+      });
+      tagRecords.push(tag);
+    }
+
+    const tagIds = new Set(tagRecords.map(t => t.id));
+    const existing = await FileTag.findAll({ where: { filePath } });
+    for (const ft of existing) {
+      if (!tagIds.has(ft.tagId)) await ft.destroy();
+    }
+    for (const tag of tagRecords) {
+      await FileTag.findOrCreate({
+        where: { filePath, tagId: tag.id },
+        defaults: { filePath, tagId: tag.id }
+      });
+    }
+
+    log.info('File tags set', { filePath, tags: tagNames });
+    res.json({ success: true, tags: tagRecords.map(t => ({ id: t.id, name: t.name, color: t.color })) });
+  } catch (err) {
+    log.error('Failed to set file tags', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

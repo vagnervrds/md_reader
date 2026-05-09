@@ -13,12 +13,28 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <h1 class="logo">mdreader</h1>
-        <button class="btn-themes" id="btn-open-themes" title="Gerenciar temas">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
+        <div class="sidebar-actions">
+          <button class="btn-header" id="btn-open-folders" title="Pastas monitoradas">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </button>
+          <button class="btn-header" id="btn-open-themes" title="Gerenciar temas">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
       </div>
       <div class="search-box">
         <input type="text" id="search-input" placeholder="Buscar arquivos..." autocomplete="off">
+      </div>
+      <div class="sidebar-tags-section" id="sidebar-tags-section" style="display:none">
+        <div class="sidebar-tags-header">
+          <span>Tags</span>
+        </div>
+        <div class="tag-chips" id="tag-chips"></div>
+      </div>
+      <div class="tag-filter-bar" id="tag-filter-bar" style="display:none">
+        <span class="tag-filter-label">Filtrando:</span>
+        <span class="tag-filter-chip" id="tag-filter-chip"></span>
+        <button class="tag-filter-clear" id="tag-filter-clear" title="Limpar filtro">&times;</button>
       </div>
       <ul class="file-list" id="file-list"></ul>
       <div class="no-results" id="no-results" hidden>Nenhum resultado encontrado</div>
@@ -56,6 +72,11 @@
         </button>
       </div>
 
+      <div class="file-tag-bar" id="file-tag-bar" style="display:none">
+        <span class="file-tag-label">Tags:</span>
+        <input type="text" class="file-tag-input" id="file-tag-input" placeholder="tags separadas por espaco..." spellcheck="false" autocomplete="off">
+      </div>
+
       <div class="view-mode" id="view-mode">
         <div class="viewer" id="viewer">
           <div class="welcome"><p>Abra um arquivo .md para comecar</p></div>
@@ -91,6 +112,27 @@
       </div>
       <div class="theme-grid" id="theme-grid">
         <div class="modal-loading"><div class="spinner"></div><br>Carregando temas...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-folders">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Pastas Monitoradas</h2>
+        <button class="modal-close" id="modal-folders-close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="folder-actions">
+          <button class="btn-add-folder" id="btn-add-folder">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Adicionar pasta
+          </button>
+        </div>
+        <div class="folder-list" id="folder-list"></div>
+        <div class="folder-empty" id="folder-empty">Nenhuma pasta monitorada. Adicione uma pasta para indexar arquivos .md automaticamente.</div>
       </div>
     </div>
   </div>

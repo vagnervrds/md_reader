@@ -20,6 +20,15 @@
   const btnSave = $('#btn-save');
   const btnView = $('#btn-view');
   const formatMenu = $('#format-menu');
+  const sidebarTagsSection = $('#sidebar-tags-section');
+  const tagChips = $('#tag-chips');
+  const tagFilterBar = $('#tag-filter-bar');
+  const tagFilterChip = $('#tag-filter-chip');
+  const fileTagBar = $('#file-tag-bar');
+  const fileTagInput = $('#file-tag-input');
+  const folderModalOverlay = $('#modal-folders');
+  const folderListEl = $('#folder-list');
+  const folderEmptyEl = $('#folder-empty');
 
   let currentPath = null;
   let currentId = null;
@@ -39,6 +48,11 @@
   let installedThemes = [];
   let activeThemeName = null;
   let currentTab = 'community';
+
+  let allTags = [];
+  let fileTagsMap = {};
+  let activeTagFilter = null;
+  let displayedFiles = [];
 
   async function api(url, opts) {
     const res = await fetch(url, opts);
@@ -91,24 +105,106 @@
     if (save) api('/api/settings/theme', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: theme }) });
   }
 
+  async function loadAllTags() {
+    allTags = await api('/api/tags');
+    renderTagChips();
+  }
+
+  async function loadAllFileTags() {
+    const data = await api('/api/tags/all-file-tags');
+    fileTagsMap = {};
+    for (const ft of data) {
+      if (!fileTagsMap[ft.filePath]) fileTagsMap[ft.filePath] = [];
+      fileTagsMap[ft.filePath].push({ id: ft.tagId, name: ft.tagName, color: ft.tagColor });
+    }
+  }
+
+  function renderTagChips() {
+    tagChips.innerHTML = '';
+    const usedTagIds = new Set();
+    for (const tags of Object.values(fileTagsMap)) {
+      for (const t of tags) usedTagIds.add(t.id);
+    }
+    const visibleTags = allTags.filter(t => usedTagIds.has(t.id));
+    if (visibleTags.length === 0) {
+      sidebarTagsSection.style.display = 'none';
+      return;
+    }
+    sidebarTagsSection.style.display = '';
+    for (const tag of visibleTags) {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip' + (activeTagFilter === tag.id ? ' active' : '');
+      chip.style.background = tag.color;
+      chip.textContent = tag.name;
+      chip.addEventListener('click', () => {
+        if (activeTagFilter === tag.id) {
+          clearActiveTagFilter();
+        } else {
+          setActiveTagFilter(tag.id);
+        }
+      });
+      tagChips.appendChild(chip);
+    }
+  }
+
+  function setActiveTagFilter(tagId) {
+    activeTagFilter = tagId;
+    const tag = allTags.find(t => t.id === tagId);
+    if (tag) {
+      tagFilterBar.style.display = 'flex';
+      tagFilterChip.style.background = tag.color;
+      tagFilterChip.textContent = tag.name;
+    }
+    renderTagChips();
+    renderFilteredFileList();
+  }
+
+  function clearActiveTagFilter() {
+    activeTagFilter = null;
+    tagFilterBar.style.display = 'none';
+    renderTagChips();
+    renderFilteredFileList();
+  }
+
+  function renderFilteredFileList() {
+    renderFileList(null);
+  }
+
   async function loadRecentFiles() {
     const files = await api('/api/recent-files');
     renderFileList(files);
   }
 
   function renderFileList(files) {
+    if (files) displayedFiles = files;
+
+    let filtered = displayedFiles;
+    if (activeTagFilter !== null) {
+      filtered = displayedFiles.filter(f => {
+        const tags = fileTagsMap[f.path] || [];
+        return tags.some(t => t.id === activeTagFilter);
+      });
+    }
+
     fileList.innerHTML = '';
     noResults.hidden = true;
-    if (files.length === 0) { noResults.hidden = false; return; }
+    if (filtered.length === 0) { noResults.hidden = false; return; }
 
-    files.forEach((file) => {
+    filtered.forEach((file) => {
       const li = document.createElement('li');
       if (file.path === currentPath) li.classList.add('active');
       const dir = file.path.replace(/[^\\/]+$/, '').slice(0, -1);
       const dirShort = dir.split(/[\\/]/).slice(-2).join('/');
+
+      const tags = fileTagsMap[file.path] || [];
+      const tagDotsHtml = tags.length > 0
+        ? '<span class="file-tag-dots">' + tags.map(t => `<span class="tag-dot" style="background:${escapeHtml(t.color)}" title="${escapeHtml(t.name)}"></span>`).join('') + '</span>'
+        : '';
+
       li.innerHTML = `
         <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         <span class="file-name">${escapeHtml(file.name)}<small>${escapeHtml(dirShort)}</small></span>
+        ${tagDotsHtml}
       `;
       li.addEventListener('click', () => openFile(file.path));
       fileList.appendChild(li);
@@ -119,6 +215,29 @@
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  function renderFileTagBar() {
+    if (!currentPath) {
+      fileTagBar.style.display = 'none';
+      return;
+    }
+    fileTagBar.style.display = 'flex';
+    const tags = fileTagsMap[currentPath] || [];
+    fileTagInput.value = tags.map(t => t.name).join(', ');
+  }
+
+  async function saveFileTags() {
+    if (!currentPath) return;
+    const raw = fileTagInput.value.trim();
+    const tagNames = [...new Set(raw.split(/,+/).map(t => t.trim().toLowerCase()).filter(t => t.length > 0))];
+    await api('/api/tags/set-file-tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath: currentPath, tags: tagNames })
+    });
+    await Promise.all([loadAllTags(), loadAllFileTags()]);
+    renderFilteredFileList();
   }
 
   function enterEditMode(content) {
@@ -222,6 +341,7 @@
     if (currentId) history.replaceState(null, '', `/file/${currentId}`);
     viewer.querySelectorAll('pre code').forEach((block) => { if (window.hljs) window.hljs.highlightElement(block); });
     loadRecentFiles();
+    renderFileTagBar();
   }
 
   async function openFileById(id) {
@@ -237,6 +357,7 @@
     history.replaceState(null, '', `/file/${data.id}`);
     viewer.querySelectorAll('pre code').forEach((block) => { if (window.hljs) window.hljs.highlightElement(block); });
     loadRecentFiles();
+    renderFileTagBar();
   }
 
   async function reloadCurrentFile() {
@@ -492,6 +613,91 @@
     });
   }
 
+  function openFoldersModal() {
+    folderModalOverlay.classList.add('active');
+    loadFolders();
+  }
+
+  function closeFoldersModal() {
+    folderModalOverlay.classList.remove('active');
+  }
+
+  async function loadFolders() {
+    const folders = await api('/api/folders');
+    folderListEl.innerHTML = '';
+    folderEmptyEl.style.display = folders.length === 0 ? 'block' : 'none';
+
+    for (const folder of folders) {
+      const item = document.createElement('div');
+      item.className = 'folder-item';
+      item.innerHTML = `
+        <div class="folder-item-path">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          ${escapeHtml(folder.path)}
+        </div>
+        <div class="folder-item-info">
+          <span>${folder.fileCount} arquivo(s)</span>
+          ${folder.lastScanned ? '<span>Atualizado: ' + new Date(folder.lastScanned).toLocaleTimeString('pt-BR') + '</span>' : ''}
+        </div>
+        <div class="folder-item-actions">
+          <label class="folder-toggle">
+            <input type="checkbox" data-folder-id="${folder.id}" data-field="includeSubfolders" ${folder.includeSubfolders ? 'checked' : ''}>
+            Subpastas
+          </label>
+          <label class="folder-toggle">
+            <input type="checkbox" data-folder-id="${folder.id}" data-field="active" ${folder.active ? 'checked' : ''}>
+            Ativo
+          </label>
+          <button class="btn-folder-action" data-action="scan" data-folder-id="${folder.id}">Escanear</button>
+          <button class="btn-folder-action btn-danger" data-action="remove" data-folder-id="${folder.id}">Remover</button>
+        </div>
+      `;
+      folderListEl.appendChild(item);
+    }
+
+    folderListEl.querySelectorAll('.folder-toggle input').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        await api(`/api/folders/${cb.dataset.folderId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [cb.dataset.field]: cb.checked })
+        });
+      });
+    });
+
+    folderListEl.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const action = btn.dataset.action;
+        const folderId = btn.dataset.folderId;
+        if (action === 'scan') {
+          btn.textContent = 'Scaneando...';
+          btn.disabled = true;
+          await api('/api/folders/scan', { method: 'POST' });
+          loadFolders();
+          loadRecentFiles();
+        }
+        if (action === 'remove') {
+          if (!confirm('Remover pasta monitorada?')) return;
+          await api(`/api/folders/${folderId}`, { method: 'DELETE' });
+          loadFolders();
+          loadRecentFiles();
+        }
+      });
+    });
+  }
+
+  async function addFolder() {
+    const data = await api('/api/folder-dialog');
+    if (data.cancelled || !data.folderPath) return;
+    const result = await api('/api/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderPath: data.folderPath, includeSubfolders: false })
+    });
+    if (result.error) { alert(result.error); return; }
+    loadFolders();
+  }
+
   $('#btn-open').addEventListener('click', openFileDialog);
   $('#btn-new').addEventListener('click', newFile);
 
@@ -616,6 +822,26 @@
   $('#modal-close').addEventListener('click', closeThemesModal);
   $('#btn-reload').addEventListener('click', reloadCurrentFile);
 
+  $('#btn-open-folders').addEventListener('click', openFoldersModal);
+  $('#modal-folders-close').addEventListener('click', closeFoldersModal);
+  folderModalOverlay.addEventListener('click', (e) => { if (e.target === folderModalOverlay) closeFoldersModal(); });
+
+  $('#btn-add-folder').addEventListener('click', addFolder);
+
+  fileTagInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveFileTags();
+      fileTagInput.blur();
+    }
+  });
+
+  fileTagInput.addEventListener('blur', () => {
+    saveFileTags();
+  });
+
+  $('#tag-filter-clear').addEventListener('click', clearActiveTagFilter);
+
   modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeThemesModal(); });
 
   $$('.modal-tab').forEach(tab => {
@@ -641,12 +867,15 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (modalOverlay.classList.contains('active')) closeThemesModal();
+      else if (folderModalOverlay.classList.contains('active')) closeFoldersModal();
       else if (formatMenu.style.display !== 'none') hideFormatMenu();
     }
     if (e.ctrlKey && e.key === 's' && editMode) { e.preventDefault(); saveFile(); }
   });
 
   loadTheme();
+  loadAllTags();
+  loadAllFileTags();
   loadRecentFiles();
 
   const fileMatch = window.location.pathname.match(/^\/file\/(\d+)$/);
