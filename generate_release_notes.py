@@ -269,7 +269,7 @@ def publish_github_release(tag, title, notes_path, config, draft=False, prerelea
 
     cmd = ["gh", "release", "create", tag]
     cmd.extend(assets)
-    cmd.extend(["--title", title, "--notes-file", notes_path, "--clobber"])
+    cmd.extend(["--title", title, "--notes-file", notes_path])
 
     if repo:
         cmd.extend(["--repo", repo])
