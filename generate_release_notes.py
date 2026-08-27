@@ -34,6 +34,22 @@ def get_git_remote_repo():
     return ""
 
 
+def get_build_info():
+    """Obtem informacoes do contador incremental e data a partir do build.json."""
+    build_path = os.path.join(SCRIPT_DIR, "build.json")
+    if os.path.exists(build_path):
+        try:
+            with open(build_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                b_num = data.get("build")
+                b_date = data.get("date", "")
+                if b_num is not None:
+                    return {"build": str(b_num).strip(), "date": str(b_date).strip()}
+        except Exception:
+            pass
+    return {"build": "1", "date": ""}
+
+
 def get_project_metadata():
     """Obtem metadados do projeto a partir de manifestos padrao (package.json, build.json)."""
     meta = {
@@ -42,7 +58,7 @@ def get_project_metadata():
         "version": "",
     }
 
-    # 1. Tenta carregar do package.json
+    # 1. Carrega do package.json
     pkg_path = os.path.join(SCRIPT_DIR, "package.json")
     if os.path.exists(pkg_path):
         try:
@@ -54,24 +70,15 @@ def get_project_metadata():
         except Exception:
             pass
 
-    # 2. Tenta complementar ou sobrescrever pelo build.json
-    build_path = os.path.join(SCRIPT_DIR, "build.json")
-    if os.path.exists(build_path):
-        try:
-            with open(build_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                ver = data.get("version") or data.get("build")
-                if ver:
-                    meta["version"] = str(ver).strip()
-                if not meta["name"] and data.get("name"):
-                    meta["name"] = str(data.get("name")).strip()
-        except Exception:
-            pass
+    # 2. Informacoes de build
+    b_info = get_build_info()
+    meta["build"] = b_info["build"]
+    meta["build_date"] = b_info["date"]
 
     if not meta["name"]:
         meta["name"] = os.path.basename(os.path.abspath(SCRIPT_DIR))
     if not meta["version"]:
-        meta["version"] = "1.0.0"
+        meta["version"] = meta["build"]
 
     return meta
 
@@ -92,7 +99,7 @@ def load_config():
         "timeout_seconds": 30,
         "commit_limit": 30,
         "cleanup_keep_releases": 3,
-        "tag_prefix": "v",
+        "tag_prefix": "Build-",
         "asset_paths": [],
         "custom_prompt": "",
     }
@@ -387,41 +394,50 @@ def main():
     repo = config.get("github_repo")
     cleanup_keep = config.get("cleanup_keep_releases", 3)
     commit_limit = config.get("commit_limit", 30)
-    tag_prefix = config.get("tag_prefix", "v")
-    app_name = config.get("app_name", "Application")
 
     if args.cleanup_only:
         cleanup_old_releases(cleanup_keep, repo=repo)
         return
 
-    # Determinando versao e tag
-    raw_version = get_version(config)
-    tag = args.tag or (f"{tag_prefix}{raw_version}" if not raw_version.startswith(tag_prefix) else raw_version)
-    title = args.title or f"{app_name} {tag}"
+    meta = get_project_metadata()
+    build_num = meta.get("build", "1")
+    build_date = meta.get("build_date", "")
+
+    tag_prefix = config.get("tag_prefix", "Build-")
+    app_name = config.get("app_name", "Application")
+
+    # Tag no Git/GitHub: ex: Build-1
+    tag = args.tag or f"{tag_prefix}{build_num}"
+    # Titulo da release: ex: MD Reader - Build 1 (2026-08-27 17:32:43)
+    title = args.title or (f"{app_name} - Build {build_num} ({build_date})" if build_date else f"{app_name} - Build {build_num}")
+
+    version_label = f"Build {build_num}"
+    if build_date:
+        version_label += f" ({build_date})"
 
     commits = get_git_commits(commit_limit)
 
-    print(f"Gerando Release Notes com IA para {tag} ({app_name})...")
+    print(f"Gerando Release Notes com IA para {version_label} ({app_name})...")
 
     notes = ""
     try:
         if commits:
-            notes = generate_notes_with_ai(tag, commits, config)
+            notes = generate_notes_with_ai(version_label, commits, config)
             print("[OK] Release Notes geradas pela IA com sucesso!")
         else:
-            notes = f"Release oficial do {app_name} - {tag}"
+            notes = f"Release oficial do {app_name} - {version_label}"
     except Exception as e:
         print(f"[Aviso] Falha ao conectar a IA ({e}). Usando fallback automatico.")
         if commits:
-            notes = f"### {app_name} - {tag}\n\n**Commits recentes:**\n{commits}"
+            notes = f"### {app_name} - {version_label}\n\n**Commits recentes:**\n{commits}"
         else:
-            notes = f"Release oficial do {app_name} - {tag}"
+            notes = f"Release oficial do {app_name} - {version_label}"
 
     output_file = os.path.join(SCRIPT_DIR, "release_notes.txt")
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(notes)
 
-    print(f"\n--- Previa das Release Notes ({tag}) ---")
+    print(f"\n--- Previa das Release Notes ({version_label}) ---")
     print(notes)
     print("----------------------------------------\n")
     print(f"[OK] Arquivo salvo em: {output_file}")

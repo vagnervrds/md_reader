@@ -9,7 +9,7 @@
   "timeout_seconds": 30,
   "commit_limit": 30,
   "cleanup_keep_releases": 3,
-  "tag_prefix": "v",
+  "tag_prefix": "Build-",
   "asset_paths": [
     "build/mdreader.exe"
   ]

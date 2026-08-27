@@ -8,6 +8,9 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 
+echo "Atualizando contador de build..."
+node scripts/increment-build.js
+
 mkdir -p build
 
 case "$(uname -s)" in

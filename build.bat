@@ -9,6 +9,10 @@ if not exist node_modules (
   if errorlevel 1 exit /b 1
 )
 
+echo Atualizando contador de build...
+node scripts\increment-build.js
+if errorlevel 1 exit /b 1
+
 if not exist build mkdir build
 
 echo Compilando mdreader para Windows x64...
