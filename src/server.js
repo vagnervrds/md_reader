@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const { execFileSync, spawnSync } = require('child_process');
 const { marked } = require('marked');
 const { markedHighlight } = require('marked-highlight');
 const hljs = require('highlight.js');
@@ -124,6 +125,145 @@ function fetchUrl(url) {
       res.on('end', () => resolve(d));
     }).on('error', () => resolve(null));
   });
+}
+
+function runWindowsPowerShell(script) {
+  return execFileSync('powershell.exe', [
+    '-NoProfile',
+    '-STA',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${script}`
+  ], { encoding: 'utf-8', windowsHide: false }).trim();
+}
+
+function commandExists(command) {
+  const checker = process.platform === 'win32' ? 'where' : 'command';
+  const args = process.platform === 'win32' ? [command] : ['-v', command];
+  return spawnSync(checker, args, { stdio: 'ignore', shell: process.platform !== 'win32' }).status === 0;
+}
+
+function runNativeDialog(kind) {
+  if (process.platform === 'win32') {
+    const owner = `$owner = New-Object System.Windows.Forms.Form; $owner.TopMost = $true; $owner.ShowInTaskbar = $false; $owner.WindowState = 'Minimized'; $owner.Show(); $owner.Activate();`;
+    if (kind === 'open') {
+      return runWindowsPowerShell(`Add-Type -AssemblyName System.Windows.Forms; ${owner} $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = 'Markdown Files|*.md;*.markdown|All Files|*.*'; $d.Title = 'Abrir arquivo Markdown'; $result = $d.ShowDialog($owner); $owner.Close(); if ($result -eq [System.Windows.Forms.DialogResult]::OK) { $d.FileName } else { '' }`);
+    }
+    if (kind === 'save') {
+      return runWindowsPowerShell(`Add-Type -AssemblyName System.Windows.Forms; ${owner} $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Markdown Files|*.md;*.markdown|All Files|*.*'; $d.Title = 'Salvar como'; $d.FileName = 'novo_arquivo.md'; $result = $d.ShowDialog($owner); $owner.Close(); if ($result -eq [System.Windows.Forms.DialogResult]::OK) { $d.FileName } else { '' }`);
+    }
+    if (kind === 'folder') {
+      return runWindowsPowerShell(`Add-Type -AssemblyName System.Windows.Forms; ${owner}
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class ModernFolderDialog
+{
+    [ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]
+    private class NativeFileOpenDialog { }
+
+    [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IFileOpenDialog
+    {
+        [PreserveSig] int Show(IntPtr parent);
+        void SetFileTypes(uint cFileTypes, IntPtr rgFilterSpec);
+        void SetFileTypeIndex(uint iFileType);
+        void GetFileTypeIndex(out uint piFileType);
+        void Advise(IntPtr pfde, out uint pdwCookie);
+        void Unadvise(uint dwCookie);
+        void SetOptions(uint fos);
+        void GetOptions(out uint pfos);
+        void SetDefaultFolder(IShellItem psi);
+        void SetFolder(IShellItem psi);
+        void GetFolder(out IShellItem ppsi);
+        void GetCurrentSelection(out IShellItem ppsi);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+        void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string pszName);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);
+        void GetResult(out IShellItem ppsi);
+        void AddPlace(IShellItem psi, int alignment);
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);
+        void Close(int hr);
+        void SetClientGuid(ref Guid guid);
+        void ClearClientData();
+        void SetFilter(IntPtr pFilter);
+        void GetResults(out IShellItemArray ppenum);
+        void GetSelectedItems(out IShellItemArray ppsai);
+    }
+
+    [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellItem
+    {
+        void BindToHandler(IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid bhid, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, out IntPtr ppv);
+        void GetParent(out IShellItem ppsi);
+        void GetDisplayName(uint sigdnName, out IntPtr ppszName);
+        void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+        void Compare(IShellItem psi, uint hint, out int piOrder);
+    }
+
+    [ComImport, Guid("B63EA76D-1F85-456F-A19C-48159EFA858B"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IShellItemArray { }
+
+    private const uint FOS_PICKFOLDERS = 0x00000020;
+    private const uint FOS_FORCEFILESYSTEM = 0x00000100;
+    private const uint SIGDN_FILESYSPATH = 0x80058000;
+
+    public static string Show(string title, IntPtr owner)
+    {
+        var dialog = (IFileOpenDialog)new NativeFileOpenDialog();
+        uint options = FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM;
+        dialog.SetOptions(options);
+        dialog.SetTitle(title);
+        int hr = dialog.Show(owner);
+        if (hr != 0) return null;
+        IShellItem item;
+        dialog.GetResult(out item);
+        IntPtr pszName;
+        item.GetDisplayName(SIGDN_FILESYSPATH, out pszName);
+        string path = Marshal.PtrToStringUni(pszName);
+        Marshal.FreeCoTaskMem(pszName);
+        return path;
+    }
+}
+'@; $result = [ModernFolderDialog]::Show('Selecionar pasta para monitorar', $owner.Handle); $owner.Close(); if ($result) { $result } else { '' }`);
+    }
+  }
+
+  if (process.platform === 'darwin') {
+    const script = kind === 'folder'
+      ? 'POSIX path of (choose folder with prompt "Selecionar pasta para monitorar")'
+      : kind === 'save'
+        ? 'POSIX path of (choose file name with prompt "Salvar como" default name "novo_arquivo.md")'
+        : 'POSIX path of (choose file with prompt "Abrir arquivo Markdown" of type {"md", "markdown", "public.plain-text"})';
+    return execFileSync('osascript', ['-e', script], { encoding: 'utf-8' }).trim();
+  }
+
+  if (process.platform === 'linux') {
+    if (commandExists('zenity')) {
+      const args = kind === 'folder'
+        ? ['--file-selection', '--directory', '--title=Selecionar pasta para monitorar']
+        : kind === 'save'
+          ? ['--file-selection', '--save', '--confirm-overwrite', '--filename=novo_arquivo.md', '--title=Salvar como']
+          : ['--file-selection', '--title=Abrir arquivo Markdown', '--file-filter=Markdown | *.md *.markdown', '--file-filter=Todos | *'];
+      return execFileSync('zenity', args, { encoding: 'utf-8' }).trim();
+    }
+    if (commandExists('kdialog')) {
+      const args = kind === 'folder'
+        ? ['--getexistingdirectory', '.', 'Selecionar pasta para monitorar']
+        : kind === 'save'
+          ? ['--getsavefilename', 'novo_arquivo.md', '*.md *.markdown']
+          : ['--getopenfilename', '.', '*.md *.markdown'];
+      return execFileSync('kdialog', args, { encoding: 'utf-8' }).trim();
+    }
+  }
+
+  const err = new Error('Dialog not supported on this platform');
+  err.code = 'DIALOG_UNSUPPORTED';
+  throw err;
 }
 
 async function fetchThemeCss(repo, branch) {
@@ -290,12 +430,7 @@ app.post('/api/file-new', async (req, res) => {
 
 app.get('/api/save-dialog', async (req, res) => {
   try {
-    const { execSync } = require('child_process');
-    if (process.platform !== 'win32') return res.status(501).json({ error: 'Not supported' });
-
-    const psCmd = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.SaveFileDialog; $d.Filter = 'Markdown Files|*.md;*.markdown|All Files|*.*'; $d.Title = 'Salvar como'; $d.FileName = 'novo_arquivo.md'; if ($d.ShowDialog() -eq 'OK') { $d.FileName } else { '' }`;
-    const fullCmd = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${psCmd}`;
-    const filePath = execSync(`powershell -NoProfile -Command "${fullCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
+    const filePath = runNativeDialog('save');
 
     if (!filePath) {
       log.info('Save dialog cancelled');
@@ -304,6 +439,7 @@ app.get('/api/save-dialog', async (req, res) => {
     log.info('Save dialog selected', { path: filePath });
     res.json({ filePath });
   } catch (err) {
+    if (err.code === 'DIALOG_UNSUPPORTED') return res.status(501).json({ error: err.message });
     log.error('Save dialog failed', { error: err.message });
     res.status(500).json({ error: err.message });
   }
@@ -473,17 +609,7 @@ app.put('/api/settings/:key', async (req, res) => {
 
 app.get('/api/open-dialog', async (req, res) => {
   try {
-    const { execSync } = require('child_process');
-    const isWindows = process.platform === 'win32';
-
-    let filePath;
-    if (isWindows) {
-      const psCmd = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = 'Markdown Files|*.md;*.markdown|All Files|*.*'; $d.Title = 'Open Markdown File'; if ($d.ShowDialog() -eq 'OK') { $d.FileName } else { '' }`;
-      const fullCmd = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${psCmd}`;
-      filePath = execSync(`powershell -NoProfile -Command "${fullCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
-    } else {
-      return res.status(501).json({ error: 'Dialog not supported on this platform' });
-    }
+    const filePath = runNativeDialog('open');
 
     if (!filePath) {
       log.info('Open dialog cancelled');
@@ -492,6 +618,7 @@ app.get('/api/open-dialog', async (req, res) => {
     log.info('Open dialog selected', { path: filePath });
     res.json({ filePath });
   } catch (err) {
+    if (err.code === 'DIALOG_UNSUPPORTED') return res.status(501).json({ error: err.message });
     log.error('Open dialog failed', { error: err.message, stack: err.stack });
     res.status(500).json({ error: err.message });
   }
@@ -499,12 +626,7 @@ app.get('/api/open-dialog', async (req, res) => {
 
 app.get('/api/folder-dialog', async (req, res) => {
   try {
-    const { execSync } = require('child_process');
-    if (process.platform !== 'win32') return res.status(501).json({ error: 'Not supported' });
-
-    const psCmd = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.ValidateNames = $false; $d.CheckFileExists = $false; $d.CheckPathExists = $false; $d.FileName = 'Cole o caminho da pasta aqui'; $d.Title = 'Selecionar pasta para monitorar'; $d.Filter = 'Todos|*.*'; if ($d.ShowDialog() -eq 'OK') { $p = $d.FileName; if (Test-Path -LiteralPath $p -PathType Container) { $p } elseif (Test-Path -LiteralPath (Split-Path $p) -PathType Container) { Split-Path $p } else { $p } } else { '' }`;
-    const fullCmd = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ${psCmd}`;
-    const folderPath = execSync(`powershell -NoProfile -Command "${fullCmd.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
+    const folderPath = runNativeDialog('folder');
 
     if (!folderPath) {
       return res.json({ cancelled: true });
@@ -512,6 +634,7 @@ app.get('/api/folder-dialog', async (req, res) => {
     log.info('Folder dialog selected', { path: folderPath });
     res.json({ folderPath });
   } catch (err) {
+    if (err.code === 'DIALOG_UNSUPPORTED') return res.status(501).json({ error: err.message });
     log.error('Folder dialog failed', { error: err.message });
     res.status(500).json({ error: err.message });
   }

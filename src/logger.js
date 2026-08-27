@@ -1,7 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 
-const LOG_DIR = path.join(__dirname, '..', 'log');
+function getAppDir() {
+  if (process.pkg) {
+    return path.dirname(process.execPath);
+  }
+  return path.join(__dirname, '..');
+}
+
+const LOG_DIR = path.join(getAppDir(), 'log');
 const LOG_FILE = path.join(LOG_DIR, 'log.log');
 const MAX_SIZE = 1024 * 1024;
 const MAX_FILES = 10;

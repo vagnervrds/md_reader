@@ -93,8 +93,12 @@
   }
 
   async function api(url, opts) {
-    const res = await fetch(url, opts);
-    return res.json();
+    try {
+      const res = await fetch(url, opts);
+      return res.json();
+    } catch (err) {
+      return { error: `Falha de conexao com o servidor: ${err.message}` };
+    }
   }
 
   async function loadTheme() {
@@ -415,6 +419,7 @@
 
   async function openFileDialog() {
     const data = await api('/api/open-dialog');
+    if (data.error) { alert(data.error); return; }
     if (data.cancelled || !data.filePath) return;
     await openFile(data.filePath);
   }
@@ -729,6 +734,7 @@
 
   async function addFolder() {
     const data = await api('/api/folder-dialog');
+    if (data.error) { alert(data.error); return; }
     if (data.cancelled || !data.folderPath) return;
     const result = await api('/api/folders', {
       method: 'POST',
