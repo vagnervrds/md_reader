@@ -1,5 +1,7 @@
 {
-  "github_repo": "vagnervrds/md_reader",
+  "app_name": "mdreader",
+  "app_description": "Leitor de Markdown leve com interface web",
+  "github_repo": "seu-usuario/seu-repositorio",
   "api_url": "http://127.0.0.1:8045/v1/chat/completions",
   "api_key": "SEU_API_KEY_AQUI",
   "model_name": "gemini-2.5-flash",
@@ -7,6 +9,7 @@
   "timeout_seconds": 30,
   "commit_limit": 30,
   "cleanup_keep_releases": 3,
+  "tag_prefix": "v",
   "asset_paths": [
     "build/mdreader.exe"
   ]

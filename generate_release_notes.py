@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,10 +19,72 @@ CONFIG_FILENAME = "release_ai_config.json"
 CONFIG_EXAMPLE_FILENAME = "release_ai_config.example.json"
 
 
+def get_git_remote_repo():
+    """Detecta automaticamente o repositorio GitHub configurado no Git remoto (origin)."""
+    try:
+        cmd = ["git", "config", "--get", "remote.origin.url"]
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", cwd=SCRIPT_DIR)
+        if res.returncode == 0 and res.stdout.strip():
+            url = res.stdout.strip()
+            match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
+            if match:
+                return match.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+def get_project_metadata():
+    """Obtem metadados do projeto a partir de manifestos padrao (package.json, build.json)."""
+    meta = {
+        "name": "",
+        "description": "",
+        "version": "",
+    }
+
+    # 1. Tenta carregar do package.json
+    pkg_path = os.path.join(SCRIPT_DIR, "package.json")
+    if os.path.exists(pkg_path):
+        try:
+            with open(pkg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                meta["name"] = str(data.get("name", "")).strip()
+                meta["description"] = str(data.get("description", "")).strip()
+                meta["version"] = str(data.get("version", "")).strip()
+        except Exception:
+            pass
+
+    # 2. Tenta complementar ou sobrescrever pelo build.json
+    build_path = os.path.join(SCRIPT_DIR, "build.json")
+    if os.path.exists(build_path):
+        try:
+            with open(build_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                ver = data.get("version") or data.get("build")
+                if ver:
+                    meta["version"] = str(ver).strip()
+                if not meta["name"] and data.get("name"):
+                    meta["name"] = str(data.get("name")).strip()
+        except Exception:
+            pass
+
+    if not meta["name"]:
+        meta["name"] = os.path.basename(os.path.abspath(SCRIPT_DIR))
+    if not meta["version"]:
+        meta["version"] = "1.0.0"
+
+    return meta
+
+
 def load_config():
-    """Carrega as configuracoes a partir do arquivo JSON ou variaveis de ambiente."""
+    """Carrega as configuracoes a partir do arquivo JSON, metadados ou variaveis de ambiente."""
+    meta = get_project_metadata()
+    detected_repo = get_git_remote_repo()
+
     config = {
-        "github_repo": "vagnervrds/md_reader",
+        "app_name": meta.get("name", "Application"),
+        "app_description": meta.get("description", ""),
+        "github_repo": detected_repo,
         "api_url": "http://127.0.0.1:8045/v1/chat/completions",
         "api_key": "",
         "model_name": "gemini-2.5-flash",
@@ -30,9 +93,8 @@ def load_config():
         "commit_limit": 30,
         "cleanup_keep_releases": 3,
         "tag_prefix": "v",
-        "asset_paths": [
-            "build/mdreader.exe"
-        ],
+        "asset_paths": [],
+        "custom_prompt": "",
     }
 
     config_paths = [
@@ -53,6 +115,10 @@ def load_config():
                 print(f"[Aviso] Erro ao ler '{path}': {e}")
 
     # Permite sobrescrever via variaveis de ambiente
+    if os.getenv("APP_NAME"):
+        config["app_name"] = os.getenv("APP_NAME")
+    if os.getenv("APP_DESCRIPTION"):
+        config["app_description"] = os.getenv("APP_DESCRIPTION")
     if os.getenv("GITHUB_REPO"):
         config["github_repo"] = os.getenv("GITHUB_REPO")
     if os.getenv("AI_API_URL"):
@@ -89,32 +155,9 @@ def get_git_commits(limit=30):
 
 
 def get_version(config):
-    """Obtem a versao atual do projeto a partir do package.json ou build.json."""
-    # 1. Tenta ler de package.json
-    pkg_path = os.path.join(SCRIPT_DIR, "package.json")
-    if os.path.exists(pkg_path):
-        try:
-            with open(pkg_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                ver = data.get("version")
-                if ver:
-                    return str(ver).strip()
-        except Exception:
-            pass
-
-    # 2. Tenta ler de build.json
-    build_path = os.path.join(SCRIPT_DIR, "build.json")
-    if os.path.exists(build_path):
-        try:
-            with open(build_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                ver = data.get("version") or data.get("build")
-                if ver:
-                    return str(ver).strip()
-        except Exception:
-            pass
-
-    return "1.0.0"
+    """Obtem a versao do projeto."""
+    meta = get_project_metadata()
+    return meta.get("version", "1.0.0")
 
 
 def generate_notes_with_ai(version_label, commits, config):
@@ -128,7 +171,23 @@ def generate_notes_with_ai(version_label, commits, config):
     if not api_key or api_key in ("SEU_API_KEY_AQUI", "YOUR_API_KEY_HERE"):
         raise ValueError("Chave de API nao configurada no release_ai_config.json")
 
-    prompt = f"""Você é um assistente de engenharia de software criando Release Notes (Notas de Lançamento) para o aplicativo MD Reader / mdreader (um leitor e visualizador moderno e leve de Markdown com interface web local, suporte a tags, monitoramento de pastas e atalhos de teclado para Windows).
+    app_name = config.get("app_name", "Application")
+    app_desc = config.get("app_description", "").strip()
+    desc_clause = f" ({app_desc})" if app_desc else ""
+
+    custom_prompt = config.get("custom_prompt", "").strip()
+    if custom_prompt:
+        try:
+            prompt = custom_prompt.format(
+                app_name=app_name,
+                app_description=app_desc,
+                version=version_label,
+                commits=commits,
+            )
+        except Exception:
+            prompt = custom_prompt
+    else:
+        prompt = f"""Você é um assistente de engenharia de software criando Release Notes (Notas de Lançamento) para o aplicativo {app_name}{desc_clause}.
 
 Abaixo está o histórico dos últimos commits do projeto:
 {commits}
@@ -174,7 +233,7 @@ Gere uma descrição resumida, profissional e organizada em Markdown para o lan�
 
 def get_available_assets(config):
     """Identifica quais arquivos binarios/assets definidos na config estao disponiveis."""
-    asset_paths = config.get("asset_paths", ["build/mdreader.exe"])
+    asset_paths = config.get("asset_paths", [])
     valid_assets = []
     for rel_path in asset_paths:
         full_path = os.path.join(SCRIPT_DIR, rel_path)
@@ -206,7 +265,7 @@ def publish_github_release(tag, title, notes_path, config, draft=False, prerelea
         for a in assets:
             print(f"  - {os.path.relpath(a, SCRIPT_DIR)}")
     else:
-        print("[Aviso] Nenhum arquivo binario encontrado em 'asset_paths'. O release sera criado sem binarios adicionais.")
+        print("[Info] Nenhum arquivo binario anexado.")
 
     cmd = ["gh", "release", "create", tag]
     cmd.extend(assets)
@@ -266,11 +325,11 @@ def cleanup_old_releases(keep=3, repo=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Gerador de Release Notes com IA e publicador no GitHub para MD Reader.")
+    parser = argparse.ArgumentParser(description="Gerador de Release Notes com IA e publicador de releases no GitHub.")
     parser.add_argument("--publish", "-p", action="store_true", help="Gera notas e publica a release no GitHub com assets.")
-    parser.add_argument("--tag", type=str, help="Tag da release (ex: v1.0.0). Se omitido, usa a versao do package.json.")
+    parser.add_argument("--tag", type=str, help="Tag da release (ex: v1.0.0). Se omitido, usa a versao do manifesto.")
     parser.add_argument("--title", type=str, help="Titulo da release.")
-    parser.add_argument("--repo", type=str, help="Repositorio no GitHub no formato 'usuario/repo' (ex: vagnervrds/md_reader).")
+    parser.add_argument("--repo", type=str, help="Repositorio no GitHub no formato 'usuario/repo' (ex: usuario/projeto).")
     parser.add_argument("--draft", action="store_true", help="Publica como rascunho (draft).")
     parser.add_argument("--prerelease", action="store_true", help="Publica como pre-release.")
     parser.add_argument("--cleanup-only", action="store_true", help="Apenas executa a limpeza de releases antigas.")
@@ -286,6 +345,7 @@ def main():
     cleanup_keep = config.get("cleanup_keep_releases", 3)
     commit_limit = config.get("commit_limit", 30)
     tag_prefix = config.get("tag_prefix", "v")
+    app_name = config.get("app_name", "Application")
 
     if args.cleanup_only:
         cleanup_old_releases(cleanup_keep, repo=repo)
@@ -294,11 +354,11 @@ def main():
     # Determinando versao e tag
     raw_version = get_version(config)
     tag = args.tag or (f"{tag_prefix}{raw_version}" if not raw_version.startswith(tag_prefix) else raw_version)
-    title = args.title or f"MD Reader {tag}"
+    title = args.title or f"{app_name} {tag}"
 
     commits = get_git_commits(commit_limit)
 
-    print(f"Gerando Release Notes com IA para {tag}...")
+    print(f"Gerando Release Notes com IA para {tag} ({app_name})...")
 
     notes = ""
     try:
@@ -306,13 +366,13 @@ def main():
             notes = generate_notes_with_ai(tag, commits, config)
             print("[OK] Release Notes geradas pela IA com sucesso!")
         else:
-            notes = f"Release oficial do MD Reader - {tag}"
+            notes = f"Release oficial do {app_name} - {tag}"
     except Exception as e:
         print(f"[Aviso] Falha ao conectar a IA ({e}). Usando fallback automatico.")
         if commits:
-            notes = f"### MD Reader - {tag}\n\n**Commits recentes:**\n{commits}"
+            notes = f"### {app_name} - {tag}\n\n**Commits recentes:**\n{commits}"
         else:
-            notes = f"Release oficial do MD Reader - {tag}"
+            notes = f"Release oficial do {app_name} - {tag}"
 
     output_file = os.path.join(SCRIPT_DIR, "release_notes.txt")
     with open(output_file, "w", encoding="utf-8") as f:
@@ -352,4 +412,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
