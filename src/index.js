@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { fork } = require('child_process');
 const sequelize = require('./database/index');
 const Setting = require('./database/models/Setting');
@@ -12,6 +13,31 @@ const app = require('./server');
 const scannerBridge = require('./scanner-bridge');
 
 const PORT = 4181;
+
+function getTargetFileFromArgv() {
+  const startIndex = process.pkg ? 1 : 2;
+  for (let i = startIndex; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (!arg || arg.startsWith('-')) continue;
+    if (fs.existsSync(arg) || arg.toLowerCase().endsWith('.md') || arg.toLowerCase().endsWith('.markdown')) {
+      return path.resolve(arg);
+    }
+  }
+  return null;
+}
+
+function isServerRunning(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://localhost:${port}/api/ping`, (res) => {
+      resolve(res.statusCode === 200);
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(600, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
 
 async function initDatabase() {
   const appDir = process.pkg ? path.dirname(process.execPath) : path.join(__dirname, '..');
@@ -41,6 +67,19 @@ function startScanner() {
 }
 
 async function start() {
+  const targetFile = getTargetFileFromArgv();
+  const urlToOpen = targetFile
+    ? `http://localhost:${PORT}/?file=${encodeURIComponent(targetFile)}`
+    : `http://localhost:${PORT}`;
+
+  const running = await isServerRunning(PORT);
+  if (running) {
+    const opn = require('opn');
+    await opn(urlToOpen);
+    process.exit(0);
+    return;
+  }
+
   await initDatabase();
 
   startScanner();
@@ -48,7 +87,7 @@ async function start() {
   app.listen(PORT, async () => {
     console.log(`mdreader running at http://localhost:${PORT}`);
     const opn = require('opn');
-    opn(`http://localhost:${PORT}`);
+    opn(urlToOpen);
   });
 }
 

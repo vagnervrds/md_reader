@@ -4,3 +4,5 @@ themes/
 log/
 build/
 *.exe
+release_ai_config.json
+release_notes.txt

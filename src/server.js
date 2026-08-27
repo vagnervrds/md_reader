@@ -14,6 +14,7 @@ const Tag = require('./database/models/Tag');
 const FileTag = require('./database/models/FileTag');
 const log = require('./logger');
 const scannerBridge = require('./scanner-bridge');
+const fileAssociation = require('./file-association');
 
 const TAG_COLORS = ['#6c8cff', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#3498db', '#e91e63', '#00bcd4'];
 
@@ -916,6 +917,50 @@ app.post('/api/tags/set-file-tags', async (req, res) => {
     res.json({ success: true, tags: tagRecords.map(t => ({ id: t.id, name: t.name, color: t.color })) });
   } catch (err) {
     log.error('Failed to set file tags', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/ping', (req, res) => {
+  res.json({ ok: true });
+});
+
+app.get('/api/association/status', (req, res) => {
+  try {
+    const status = fileAssociation.checkStatus();
+    res.json(status);
+  } catch (err) {
+    log.error('Erro ao consultar status de associação', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/association/register', (req, res) => {
+  try {
+    const result = fileAssociation.register();
+    res.json(result);
+  } catch (err) {
+    log.error('Erro ao registrar associação', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/association/unregister', (req, res) => {
+  try {
+    const result = fileAssociation.unregister();
+    res.json(result);
+  } catch (err) {
+    log.error('Erro ao desregistrar associação', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/association/open-settings', (req, res) => {
+  try {
+    const success = fileAssociation.openDefaultAppsSettings();
+    res.json({ success });
+  } catch (err) {
+    log.error('Erro ao abrir configurações do sistema', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

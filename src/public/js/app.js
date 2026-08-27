@@ -32,6 +32,12 @@
   const folderModalOverlay = $('#modal-folders');
   const folderListEl = $('#folder-list');
   const folderEmptyEl = $('#folder-empty');
+  const settingsModalOverlay = $('#modal-settings');
+  const assocStatusBadge = $('#assoc-status-badge');
+  const assocExePath = $('#assoc-exe-path');
+  const btnRegisterAssoc = $('#btn-register-assoc');
+  const btnUnregisterAssoc = $('#btn-unregister-assoc');
+  const linkOpenDefaultApps = $('#link-open-defaultapps');
 
   let currentPath = null;
   let currentId = null;
@@ -745,6 +751,74 @@
     loadFolders();
   }
 
+  function openSettingsModal() {
+    settingsModalOverlay.classList.add('active');
+    loadAssociationStatus();
+  }
+
+  function closeSettingsModal() {
+    settingsModalOverlay.classList.remove('active');
+  }
+
+  async function loadAssociationStatus() {
+    assocStatusBadge.textContent = 'Verificando...';
+    assocStatusBadge.className = 'settings-badge';
+    btnRegisterAssoc.disabled = true;
+    btnUnregisterAssoc.disabled = true;
+
+    const data = await api('/api/association/status');
+    btnRegisterAssoc.disabled = false;
+    btnUnregisterAssoc.disabled = false;
+
+    if (data.error || !data.supported) {
+      assocStatusBadge.textContent = data.message || 'Não suportado';
+      assocStatusBadge.className = 'settings-badge badge-warning';
+      assocExePath.textContent = data.exePath || '-';
+      btnRegisterAssoc.style.display = 'none';
+      btnUnregisterAssoc.style.display = 'none';
+      return;
+    }
+
+    assocExePath.textContent = data.exePath || 'Não identificado';
+
+    if (data.isAssociated) {
+      assocStatusBadge.textContent = 'Associado como leitor padrão';
+      assocStatusBadge.className = 'settings-badge badge-success';
+      btnRegisterAssoc.textContent = 'Reaplicar Associação';
+      btnRegisterAssoc.style.display = '';
+      btnUnregisterAssoc.style.display = '';
+    } else {
+      assocStatusBadge.textContent = 'Não associado';
+      assocStatusBadge.className = 'settings-badge badge-warning';
+      btnRegisterAssoc.textContent = 'Definir como Leitor Padrão';
+      btnRegisterAssoc.style.display = '';
+      btnUnregisterAssoc.style.display = 'none';
+    }
+  }
+
+  async function registerAssociation() {
+    btnRegisterAssoc.textContent = 'Registrando...';
+    btnRegisterAssoc.disabled = true;
+    const res = await api('/api/association/register', { method: 'POST' });
+    btnRegisterAssoc.disabled = false;
+    if (res.error) {
+      alert(`Erro ao associar arquivo: ${res.error}`);
+    }
+    await loadAssociationStatus();
+  }
+
+  async function unregisterAssociation() {
+    if (!confirm('Deseja remover o mdreader como leitor padrão para arquivos .md?')) return;
+    btnUnregisterAssoc.textContent = 'Removendo...';
+    btnUnregisterAssoc.disabled = true;
+    const res = await api('/api/association/unregister', { method: 'POST' });
+    btnUnregisterAssoc.disabled = false;
+    if (res.error) {
+      alert(`Erro ao desassociar arquivo: ${res.error}`);
+    }
+    await loadAssociationStatus();
+  }
+
   $('#btn-open').addEventListener('click', openFileDialog);
   $('#btn-new').addEventListener('click', newFile);
 
@@ -873,6 +947,17 @@
   $('#modal-folders-close').addEventListener('click', closeFoldersModal);
   folderModalOverlay.addEventListener('click', (e) => { if (e.target === folderModalOverlay) closeFoldersModal(); });
 
+  $('#btn-open-settings').addEventListener('click', openSettingsModal);
+  $('#modal-settings-close').addEventListener('click', closeSettingsModal);
+  settingsModalOverlay.addEventListener('click', (e) => { if (e.target === settingsModalOverlay) closeSettingsModal(); });
+
+  btnRegisterAssoc.addEventListener('click', registerAssociation);
+  btnUnregisterAssoc.addEventListener('click', unregisterAssociation);
+  linkOpenDefaultApps.addEventListener('click', (e) => {
+    e.preventDefault();
+    api('/api/association/open-settings', { method: 'POST' });
+  });
+
   $('#btn-add-folder').addEventListener('click', addFolder);
 
   fileTagInput.addEventListener('keydown', (e) => {
@@ -915,6 +1000,7 @@
     if (e.key === 'Escape') {
       if (modalOverlay.classList.contains('active')) closeThemesModal();
       else if (folderModalOverlay.classList.contains('active')) closeFoldersModal();
+      else if (settingsModalOverlay.classList.contains('active')) closeSettingsModal();
       else if (formatMenu.style.display !== 'none') hideFormatMenu();
     }
     if (e.ctrlKey && e.key === 's' && editMode) { e.preventDefault(); saveFile(); }
@@ -925,8 +1011,14 @@
   loadAllFileTags();
   loadRecentFiles();
 
-  const fileMatch = window.location.pathname.match(/^\/file\/(\d+)$/);
-  if (fileMatch) {
-    openFileById(fileMatch[1]);
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialFilePath = urlParams.get('file');
+  if (initialFilePath) {
+    openFile(initialFilePath);
+  } else {
+    const fileMatch = window.location.pathname.match(/^\/file\/(\d+)$/);
+    if (fileMatch) {
+      openFileById(fileMatch[1]);
+    }
   }
 })();
