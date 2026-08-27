@@ -247,8 +247,17 @@ def check_gh_installed():
     return shutil.which("gh") is not None
 
 
+def check_release_exists(tag, repo=None):
+    """Verifica se a release ja existe no GitHub."""
+    cmd = ["gh", "release", "view", tag]
+    if repo:
+        cmd.extend(["--repo", repo])
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", cwd=SCRIPT_DIR)
+    return res.returncode == 0
+
+
 def publish_github_release(tag, title, notes_path, config, draft=False, prerelease=False):
-    """Cria a release no GitHub e faz upload dos arquivos binarios usando gh CLI."""
+    """Cria ou atualiza a release no GitHub e faz upload dos arquivos binarios usando gh CLI."""
     if not check_gh_installed():
         print("[Erro] O utilitario GitHub CLI ('gh') nao foi encontrado no sistema.")
         print("Instale o GitHub CLI ou verifique o PATH: https://cli.github.com/")
@@ -257,7 +266,13 @@ def publish_github_release(tag, title, notes_path, config, draft=False, prerelea
     repo = config.get("github_repo", "").strip()
     assets = get_available_assets(config)
 
-    print(f"\nPublicando Release '{tag}' no GitHub...")
+    already_exists = check_release_exists(tag, repo=repo)
+
+    if already_exists:
+        print(f"\nA release '{tag}' ja existe no GitHub. Atualizando notas e anexos...")
+    else:
+        print(f"\nPublicando nova Release '{tag}' no GitHub...")
+
     if repo:
         print(f"Repositorio: {repo}")
     if assets:
@@ -267,29 +282,57 @@ def publish_github_release(tag, title, notes_path, config, draft=False, prerelea
     else:
         print("[Info] Nenhum arquivo binario anexado.")
 
-    cmd = ["gh", "release", "create", tag]
-    cmd.extend(assets)
-    cmd.extend(["--title", title, "--notes-file", notes_path])
-
-    if repo:
-        cmd.extend(["--repo", repo])
-    if draft:
-        cmd.append("--draft")
-    if prerelease:
-        cmd.append("--prerelease")
-
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", cwd=SCRIPT_DIR)
-        if res.returncode == 0:
-            print(f"[OK] Release {tag} publicada com sucesso no GitHub!")
-            if res.stdout.strip():
-                print(f"URL: {res.stdout.strip()}")
+        if already_exists:
+            # Atualiza titulo e notas da release existente
+            edit_cmd = ["gh", "release", "edit", tag, "--title", title, "--notes-file", notes_path]
+            if repo:
+                edit_cmd.extend(["--repo", repo])
+            if draft:
+                edit_cmd.append("--draft")
+            if prerelease:
+                edit_cmd.append("--prerelease")
+
+            res_edit = subprocess.run(edit_cmd, capture_output=True, text=True, encoding="utf-8", cwd=SCRIPT_DIR)
+            if res_edit.returncode != 0:
+                print(f"[Erro] Falha ao atualizar release no GitHub:\n{res_edit.stderr.strip()}")
+                return False
+
+            # Faz upload/substituicao dos assets
+            if assets:
+                upload_cmd = ["gh", "release", "upload", tag] + assets + ["--clobber"]
+                if repo:
+                    upload_cmd.extend(["--repo", repo])
+                res_up = subprocess.run(upload_cmd, capture_output=True, text=True, encoding="utf-8", cwd=SCRIPT_DIR)
+                if res_up.returncode != 0:
+                    print(f"[Aviso] Falha ao fazer upload de assets:\n{res_up.stderr.strip()}")
+
+            print(f"[OK] Release {tag} atualizada com sucesso no GitHub!")
             return True
         else:
-            print(f"[Erro] Falha ao criar release no GitHub:\n{res.stderr.strip()}")
-            return False
+            # Cria nova release
+            cmd = ["gh", "release", "create", tag]
+            cmd.extend(assets)
+            cmd.extend(["--title", title, "--notes-file", notes_path])
+
+            if repo:
+                cmd.extend(["--repo", repo])
+            if draft:
+                cmd.append("--draft")
+            if prerelease:
+                cmd.append("--prerelease")
+
+            res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", cwd=SCRIPT_DIR)
+            if res.returncode == 0:
+                print(f"[OK] Release {tag} publicada com sucesso no GitHub!")
+                if res.stdout.strip():
+                    print(f"URL: {res.stdout.strip()}")
+                return True
+            else:
+                print(f"[Erro] Falha ao criar release no GitHub:\n{res.stderr.strip()}")
+                return False
     except Exception as e:
-        print(f"[Erro] Excecao ao executar gh release create: {e}")
+        print(f"[Erro] Excecao ao executar operacao de release no GitHub: {e}")
         return False
 
 
