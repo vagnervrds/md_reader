@@ -70,7 +70,21 @@ def get_project_metadata():
         except Exception:
             pass
 
-    # 2. Informacoes de build
+    # 2. Carrega do winres/winres.json se necessario
+    winres_path = os.path.join(SCRIPT_DIR, "winres", "winres.json")
+    if os.path.exists(winres_path):
+        try:
+            with open(winres_path, "r", encoding="utf-8") as f:
+                wdata = json.load(f)
+                manifest_ident = wdata.get("RT_MANIFEST", {}).get("#1", {}).get("0409", {})
+                if not meta["name"]:
+                    meta["name"] = manifest_ident.get("identity", {}).get("name", "")
+                if not meta["description"]:
+                    meta["description"] = manifest_ident.get("description", "")
+        except Exception:
+            pass
+
+    # 3. Informacoes de build
     b_info = get_build_info()
     meta["build"] = b_info["build"]
     meta["build_date"] = b_info["date"]
@@ -241,6 +255,13 @@ Gere uma descrição resumida, profissional e organizada em Markdown para o lan�
 def get_available_assets(config):
     """Identifica quais arquivos binarios/assets definidos na config estao disponiveis."""
     asset_paths = config.get("asset_paths", [])
+    if not asset_paths:
+        asset_paths = [
+            "build/mdreader.exe",
+            "build/mdreader-linux",
+            "build/mdreader-macos",
+            "build/mdreader",
+        ]
     valid_assets = []
     for rel_path in asset_paths:
         full_path = os.path.join(SCRIPT_DIR, rel_path)

@@ -3,38 +3,41 @@ set -eu
 
 cd "$(dirname "$0")"
 
-if [ ! -d node_modules ]; then
-  echo "Instalando dependencias..."
-  npm install
+echo "=========================================="
+echo "Atualizando contador de build..."
+if [ -f "scripts/increment_build.py" ]; then
+  python3 scripts/increment_build.py 2>/dev/null || python scripts/increment_build.py
+elif [ -f "scripts/increment-build.js" ]; then
+  node scripts/increment-build.js
 fi
 
-echo "Atualizando contador de build..."
-node scripts/increment-build.js
-
 mkdir -p build
+mkdir -p internal/server/public
+
+echo "Sincronizando frontend..."
+cp -r public/* internal/server/public/
 
 case "$(uname -s)" in
   Darwin)
-    target="node18-macos-x64"
     output="build/mdreader-macos"
-    label="macOS x64"
+    label="macOS"
     ;;
   Linux)
-    target="node18-linux-x64"
     output="build/mdreader-linux"
-    label="Linux x64"
+    label="Linux"
     ;;
   *)
-    echo "Sistema nao suportado por este script: $(uname -s)"
-    exit 1
+    output="build/mdreader"
+    label="$(uname -s)"
     ;;
 esac
 
-echo "Compilando mdreader para $label..."
-npx pkg . --targets "$target" --output "$output"
+echo "Compilando mdreader em Go para $label..."
+go build -ldflags="-s -w" -o "$output" ./cmd/mdreader
 
 echo
-echo "Build gerado em:"
+echo "=========================================="
+echo "Build concluido com sucesso!"
+echo "Executavel gerado em:"
 echo "  $output"
-printf "\nPressione Enter para fechar..."
-read _answer
+echo "=========================================="

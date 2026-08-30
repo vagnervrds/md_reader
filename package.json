@@ -4,10 +4,11 @@
   "description": "Leitor de Markdown leve com interface web",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node src/index.js",
-    "build:win": "node scripts/increment-build.js && pkg . --targets node18-win-x64 --output build/mdreader.exe && node scripts/apply-icon.js",
-    "apply-icon": "node scripts/apply-icon.js"
+    "start": "go run ./cmd/mdreader",
+    "build:win": "cmd /c build.bat",
+    "build:sh": "sh build.sh",
+    "release": "python generate_release_notes.py --publish",
+    "test": "go test ./..."
   },
   "bin": "src/index.js",
   "pkg": {

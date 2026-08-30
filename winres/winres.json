@@ -1,0 +1,50 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0000": [
+        "../public/icon-192.png",
+        "../public/favicon-32x32.png",
+        "../public/favicon-16x16.png"
+      ]
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "identity": {
+          "name": "mdreader",
+          "version": "1.0.0.15"
+        },
+        "description": "Leitor de Markdown leve com interface web",
+        "minimum-os": "win7",
+        "execution-level": "as invoker",
+        "ui-access": false,
+        "auto-elevate": false,
+        "dpi-awareness": "system"
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "fixed": {
+          "file_version": "1.0.0.15",
+          "product_version": "1.0.0.15"
+        },
+        "info": {
+          "0409": {
+            "Comments": "Build #15 (2026-08-30 19:40:08)",
+            "CompanyName": "mdreader",
+            "FileDescription": "Leitor de Markdown",
+            "FileVersion": "1.0.0.15",
+            "InternalName": "mdreader",
+            "LegalCopyright": "",
+            "OriginalFilename": "mdreader.exe",
+            "ProductName": "mdreader",
+            "ProductVersion": "1.0.0.15"
+          }
+        }
+      }
+    }
+  }
+}
