@@ -38,7 +38,13 @@ marked.use(markedHighlight({
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
+}));
 
 function getAppDir() {
   if (process.pkg) {
@@ -364,13 +370,24 @@ app.get('/themes/:name.css', (req, res) => {
   res.sendFile(themePath);
 });
 
+function isSnapshotPath(p) {
+  if (!p || typeof p !== 'string') return false;
+  const lower = p.toLowerCase();
+  return lower.includes('snapshot') || lower.startsWith('\\snapshot') || lower.startsWith('/snapshot');
+}
+
 app.get('/api/file-raw', async (req, res) => {
   try {
     const filePath = req.query.path;
-    if (!filePath) return res.status(400).json({ error: 'path is required' });
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    if (!filePath) return res.status(400).json({ error: 'Caminho do arquivo não fornecido' });
+    if (isSnapshotPath(filePath) || !fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Arquivo não encontrado no disco', notFound: true, path: filePath });
+    }
 
     const content = fs.readFileSync(filePath, 'utf-8');
+    if (content.includes('source-code-not-available')) {
+      return res.status(404).json({ error: 'Arquivo não encontrado no disco', notFound: true, path: filePath });
+    }
     log.info('File raw loaded', { path: filePath });
     res.json({ content });
   } catch (err) {
@@ -452,7 +469,8 @@ app.get('/api/recent-files', async (req, res) => {
       order: [['last_opened', 'DESC']],
       limit: 50
     });
-    res.json(files);
+    const validFiles = files.filter(f => !isSnapshotPath(f.path) && !f.path.toLowerCase().endsWith('.js'));
+    res.json(validFiles);
   } catch (err) {
     log.error('Failed to list recent files', { error: err.message });
     res.status(500).json({ error: err.message });
@@ -463,6 +481,7 @@ app.post('/api/recent-files', async (req, res) => {
   try {
     const { filePath } = req.body;
     if (!filePath) return res.status(400).json({ error: 'filePath is required' });
+    if (isSnapshotPath(filePath)) return res.status(400).json({ error: 'Invalid path' });
 
     const name = path.basename(filePath);
     const file = await RecentFile.findOne({ where: { path: filePath } });
@@ -480,9 +499,47 @@ app.post('/api/recent-files', async (req, res) => {
   }
 });
 
+app.delete('/api/file-db', async (req, res) => {
+  try {
+    const filePath = req.query.path || (req.body && req.body.path);
+    const id = req.query.id || (req.body && req.body.id);
+
+    let targetPath = filePath;
+    if (id) {
+      const recent = await RecentFile.findByPk(id);
+      if (recent) {
+        targetPath = targetPath || recent.path;
+        await recent.destroy();
+      }
+      const indexed = await IndexedFile.findByPk(id);
+      if (indexed) {
+        targetPath = targetPath || indexed.path;
+        await indexed.destroy();
+      }
+    }
+
+    if (targetPath) {
+      await RecentFile.destroy({ where: { path: targetPath } });
+      await IndexedFile.destroy({ where: { path: targetPath } });
+      await FileTag.destroy({ where: { filePath: targetPath } });
+    }
+
+    log.info('File removed from database', { path: targetPath, id });
+    res.json({ success: true });
+  } catch (err) {
+    log.error('Failed to remove file from database', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/recent-files/:id', async (req, res) => {
   try {
-    await RecentFile.destroy({ where: { id: req.params.id } });
+    const file = await RecentFile.findByPk(req.params.id);
+    if (file) {
+      await IndexedFile.destroy({ where: { path: file.path } });
+      await FileTag.destroy({ where: { filePath: file.path } });
+      await file.destroy();
+    }
     res.json({ success: true });
   } catch (err) {
     log.error('Failed to remove recent file', { id: req.params.id, error: err.message });
@@ -493,14 +550,36 @@ app.delete('/api/recent-files/:id', async (req, res) => {
 app.get('/api/file', async (req, res) => {
   try {
     const filePath = req.query.path;
-    if (!filePath) return res.status(400).json({ error: 'path is required' });
+    if (!filePath) return res.status(400).json({ error: 'Caminho do arquivo não fornecido' });
 
-    if (!fs.existsSync(filePath)) {
+    if (isSnapshotPath(filePath) || !fs.existsSync(filePath)) {
       log.warn('File not found', { path: filePath });
-      return res.status(404).json({ error: 'File not found' });
+      const recent = await RecentFile.findOne({ where: { path: filePath } });
+      if (isSnapshotPath(filePath) && recent) {
+        await recent.destroy();
+      }
+      return res.status(404).json({
+        error: 'Arquivo não encontrado no disco',
+        notFound: true,
+        path: filePath,
+        name: path.basename(filePath),
+        id: recent ? recent.id : null
+      });
     }
 
     const content = fs.readFileSync(filePath, 'utf-8');
+    if (content.includes('source-code-not-available')) {
+      const recent = await RecentFile.findOne({ where: { path: filePath } });
+      if (recent) await recent.destroy();
+      return res.status(404).json({
+        error: 'Arquivo não encontrado no disco',
+        notFound: true,
+        path: filePath,
+        name: path.basename(filePath),
+        id: recent ? recent.id : null
+      });
+    }
+
     const html = marked.parse(content);
 
     const name = path.basename(filePath);
@@ -523,13 +602,31 @@ app.get('/api/file', async (req, res) => {
 app.get('/api/file/:id', async (req, res) => {
   try {
     const file = await RecentFile.findByPk(req.params.id);
-    if (!file) return res.status(404).json({ error: 'File not found in database' });
+    if (!file) return res.status(404).json({ error: 'Arquivo não encontrado no banco de dados', notFound: true, id: req.params.id });
 
-    if (!fs.existsSync(file.path)) {
-      return res.status(404).json({ error: 'File not found on disk' });
+    if (isSnapshotPath(file.path) || !fs.existsSync(file.path)) {
+      if (isSnapshotPath(file.path)) await file.destroy();
+      return res.status(404).json({
+        error: 'Arquivo não encontrado no disco',
+        notFound: true,
+        id: file.id,
+        name: file.name,
+        path: file.path
+      });
     }
 
     const content = fs.readFileSync(file.path, 'utf-8');
+    if (content.includes('source-code-not-available')) {
+      await file.destroy();
+      return res.status(404).json({
+        error: 'Arquivo não encontrado no disco',
+        notFound: true,
+        id: file.id,
+        name: file.name,
+        path: file.path
+      });
+    }
+
     const html = marked.parse(content);
 
     await file.update({ last_opened: new Date() });
@@ -555,6 +652,7 @@ app.get('/api/search', async (req, res) => {
 
     const results = [];
     for (const file of allFiles) {
+      if (isSnapshotPath(file.path)) continue;
       const nameMatch = file.name.toLowerCase().includes(q);
       let contentMatch = false;
 

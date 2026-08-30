@@ -2,24 +2,33 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { fork } = require('child_process');
+const { Op } = require('sequelize');
 const sequelize = require('./database/index');
 const Setting = require('./database/models/Setting');
-require('./database/models/RecentFile');
-require('./database/models/MonitoredFolder');
-require('./database/models/IndexedFile');
-require('./database/models/Tag');
-require('./database/models/FileTag');
+const RecentFile = require('./database/models/RecentFile');
+const MonitoredFolder = require('./database/models/MonitoredFolder');
+const IndexedFile = require('./database/models/IndexedFile');
+const Tag = require('./database/models/Tag');
+const FileTag = require('./database/models/FileTag');
 const app = require('./server');
 const scannerBridge = require('./scanner-bridge');
 
 const PORT = 4181;
+
+function isSnapshotPath(p) {
+  if (!p || typeof p !== 'string') return false;
+  const lower = p.toLowerCase();
+  return lower.includes('snapshot') || lower.startsWith('\\snapshot') || lower.startsWith('/snapshot');
+}
 
 function getTargetFileFromArgv() {
   const startIndex = process.pkg ? 1 : 2;
   for (let i = startIndex; i < process.argv.length; i++) {
     const arg = process.argv[i];
     if (!arg || arg.startsWith('-')) continue;
-    if (fs.existsSync(arg) || arg.toLowerCase().endsWith('.md') || arg.toLowerCase().endsWith('.markdown')) {
+    if (isSnapshotPath(arg)) continue;
+    if (arg.toLowerCase().endsWith('.js') || arg.toLowerCase().endsWith('.exe')) continue;
+    if (arg.toLowerCase().endsWith('.md') || arg.toLowerCase().endsWith('.markdown') || fs.existsSync(arg)) {
       return path.resolve(arg);
     }
   }
@@ -47,6 +56,15 @@ async function initDatabase() {
   if (!fs.existsSync(themesDir)) fs.mkdirSync(themesDir, { recursive: true });
 
   await sequelize.sync();
+
+  try {
+    await RecentFile.destroy({ where: { path: { [Op.like]: '%snapshot%' } } });
+    await IndexedFile.destroy({ where: { path: { [Op.like]: '%snapshot%' } } });
+    await FileTag.destroy({ where: { filePath: { [Op.like]: '%snapshot%' } } });
+    await RecentFile.destroy({ where: { path: { [Op.like]: '%.js' } } });
+  } catch (cleanErr) {
+    console.warn('Database cleanup warning:', cleanErr.message);
+  }
 
   const theme = await Setting.findByPk('theme');
   if (!theme) {

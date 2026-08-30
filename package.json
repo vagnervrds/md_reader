@@ -5,7 +5,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node src/index.js"
+    "dev": "node src/index.js",
+    "build:win": "node scripts/increment-build.js && pkg . --targets node18-win-x64 --output build/mdreader.exe && node scripts/apply-icon.js",
+    "apply-icon": "node scripts/apply-icon.js"
   },
   "bin": "src/index.js",
   "pkg": {
@@ -24,6 +26,7 @@
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "resedit": "^3.1.0"
   }
 }

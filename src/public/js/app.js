@@ -256,8 +256,19 @@
         <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         <span class="file-name">${escapeHtml(file.name)}<small>${escapeHtml(dirShort)}</small></span>
         ${tagDotsHtml}
+        <button class="btn-remove-item" title="Remover do banco de dados" data-id="${file.id}" data-path="${escapeHtml(file.path)}">&times;</button>
       `;
-      li.addEventListener('click', () => openFile(file.path));
+      li.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-remove-item')) return;
+        openFile(file.path);
+      });
+      const btnRemoveItem = li.querySelector('.btn-remove-item');
+      if (btnRemoveItem) {
+        btnRemoveItem.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await removeFileFromDb(file.path, file.id);
+        });
+      }
       fileList.appendChild(li);
     });
   }
@@ -379,12 +390,129 @@
     enterEditMode('');
   }
 
+  function renderFileNotFound(filePath, fileId, fileName, errorMsg) {
+    currentPath = filePath || null;
+    currentId = fileId || null;
+    fileTagBar.style.display = 'none';
+
+    const displayName = fileName || (filePath ? filePath.split(/[\\/]/).pop() : 'Arquivo não encontrado');
+    topbarTitle.textContent = displayName;
+    document.title = `${displayName} - Arquivo não encontrado`;
+
+    const displayPath = filePath || '(Endereço não disponível no disco)';
+    const displayError = errorMsg || 'Arquivo não encontrado no disco';
+
+    viewer.innerHTML = `
+      <div class="file-not-found-card">
+        <div class="file-not-found-header">
+          <div class="file-not-found-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div class="file-not-found-title-group">
+            <h2>${escapeHtml(displayError)}</h2>
+            <p>O arquivo não existe mais neste local no disco (pode ter sido excluído, renomeado ou movido).</p>
+          </div>
+        </div>
+
+        <div class="file-not-found-path-box">
+          <span class="file-not-found-path-label">Endereço onde o arquivo estava no disco:</span>
+          <div class="file-not-found-path-value" id="not-found-path-text">${escapeHtml(displayPath)}</div>
+        </div>
+
+        <div class="file-not-found-actions">
+          <button class="btn-remove-db" id="btn-remove-file-db">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+            Apagar do banco de dados
+          </button>
+          <button class="btn-copy-path" id="btn-copy-not-found-path" title="Copiar endereço completo">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            Copiar endereço
+          </button>
+        </div>
+      </div>
+    `;
+
+    const btnRemove = $('#btn-remove-file-db');
+    if (btnRemove) {
+      btnRemove.addEventListener('click', async () => {
+        btnRemove.disabled = true;
+        btnRemove.textContent = 'Removendo...';
+        await removeFileFromDb(filePath, fileId);
+      });
+    }
+
+    const btnCopy = $('#btn-copy-not-found-path');
+    if (btnCopy) {
+      btnCopy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(displayPath);
+          btnCopy.textContent = 'Copiado!';
+          setTimeout(() => {
+            btnCopy.innerHTML = `
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              Copiar endereço
+            `;
+          }, 2000);
+        } catch (e) {
+          // fallback
+        }
+      });
+    }
+  }
+
+  async function removeFileFromDb(filePath, fileId) {
+    const res = await api('/api/file-db', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, id: fileId })
+    });
+
+    if (res.error) {
+      alert(`Erro ao remover do banco de dados: ${res.error}`);
+      return;
+    }
+
+    currentPath = null;
+    currentId = null;
+    topbarTitle.textContent = 'mdreader';
+    document.title = 'mdreader';
+    history.replaceState(null, '', '/');
+
+    await Promise.all([loadRecentFiles(), loadAllTags(), loadAllFileTags()]);
+    renderTagChips();
+
+    viewer.innerHTML = `
+      <div class="welcome">
+        <p>Arquivo removido do banco de dados com sucesso.</p>
+      </div>
+    `;
+  }
+
   async function openFile(filePath) {
+    if (!filePath || filePath.toLowerCase().includes('snapshot')) return;
     if (isModified && editMode) { if (!confirm('Arquivo modificado. Descartar?')) return; }
     currentPath = filePath;
     exitEditMode();
     const data = await api(`/api/file?path=${encodeURIComponent(filePath)}`);
-    if (data.error) { viewer.innerHTML = `<div class="welcome"><p>Erro: ${escapeHtml(data.error)}</p></div>`; return; }
+    if (data.notFound || data.error || (data.html && data.html.includes('source-code-not-available'))) {
+      renderFileNotFound(data.path || filePath, data.id || null, data.name || '', data.error || 'Arquivo não encontrado no disco');
+      return;
+    }
     currentId = data.id || null;
     viewer.innerHTML = data.html;
     topbarTitle.textContent = data.name;
@@ -399,7 +527,10 @@
     if (isModified && editMode) { if (!confirm('Arquivo modificado. Descartar?')) return; }
     exitEditMode();
     const data = await api(`/api/file/${id}`);
-    if (data.error) { viewer.innerHTML = `<div class="welcome"><p>Erro: ${escapeHtml(data.error)}</p></div>`; return; }
+    if (data.notFound || data.error || (data.html && data.html.includes('source-code-not-available')) || (data.path && data.path.toLowerCase().includes('snapshot'))) {
+      renderFileNotFound(data.path || '', data.id || id, data.name || '', data.error || 'Arquivo não encontrado no disco');
+      return;
+    }
     currentPath = data.path;
     currentId = data.id;
     viewer.innerHTML = data.html;
@@ -825,7 +956,10 @@
   $('#btn-edit').addEventListener('click', async () => {
     if (!currentPath) { enterEditMode(''); return; }
     const data = await api(`/api/file-raw?path=${encodeURIComponent(currentPath)}`);
-    if (data.error) { topbarStatus.textContent = data.error; return; }
+    if (data.notFound || data.error) {
+      renderFileNotFound(data.path || currentPath, currentId, topbarTitle.textContent, data.error);
+      return;
+    }
     enterEditMode(data.content);
   });
 
@@ -996,6 +1130,47 @@
     }
   });
 
+  function pathResolve(baseDir, relPath) {
+    const isWin = baseDir.includes('\\') || /^[a-zA-Z]:/.test(baseDir);
+    const sep = isWin ? '\\' : '/';
+    const cleanBase = baseDir.replace(/[\\/]+$/, '');
+    const parts = cleanBase.split(/[\\/]/);
+    const relParts = relPath.split(/[\\/]/);
+
+    for (const p of relParts) {
+      if (!p || p === '.') continue;
+      if (p === '..') {
+        if (parts.length > 1) parts.pop();
+      } else {
+        parts.push(p);
+      }
+    }
+    return parts.join(sep);
+  }
+
+  viewer.addEventListener('click', (e) => {
+    const link = e.target.closest('a');
+    if (!link) return;
+    const href = link.getAttribute('href');
+    if (!href) return;
+
+    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
+      link.setAttribute('target', '_blank');
+      link.setAttribute('rel', 'noopener noreferrer');
+      return;
+    }
+
+    if (href.startsWith('#')) return;
+
+    e.preventDefault();
+    let targetPath = href;
+    if (currentPath && !/^[a-zA-Z]:[\\/]/.test(href) && !href.startsWith('/')) {
+      const baseDir = currentPath.replace(/[^\\/]+$/, '');
+      targetPath = pathResolve(baseDir, href);
+    }
+    openFile(targetPath);
+  });
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (modalOverlay.classList.contains('active')) closeThemesModal();
@@ -1013,7 +1188,7 @@
 
   const urlParams = new URLSearchParams(window.location.search);
   const initialFilePath = urlParams.get('file');
-  if (initialFilePath) {
+  if (initialFilePath && !initialFilePath.toLowerCase().includes('snapshot')) {
     openFile(initialFilePath);
   } else {
     const fileMatch = window.location.pathname.match(/^\/file\/(\d+)$/);

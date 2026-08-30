@@ -259,6 +259,32 @@ html, body {
   white-space: nowrap;
 }
 
+.btn-remove-item {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: color var(--transition), background var(--transition);
+}
+
+.file-list li:hover .btn-remove-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-remove-item:hover {
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.18);
+}
+
 .no-results {
   padding: 16px;
   text-align: center;
@@ -1298,3 +1324,130 @@ html, body {
 .settings-help a:hover {
   text-decoration: underline;
 }
+
+.file-not-found-card {
+  max-width: 680px;
+  margin: 40px auto;
+  background: var(--background-secondary);
+  border: 1px solid rgba(231, 76, 60, 0.35);
+  border-radius: 12px;
+  padding: 28px 24px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.file-not-found-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.file-not-found-icon {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 10px;
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-not-found-title-group h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e74c3c;
+  margin: 0 0 4px 0;
+  border: none;
+  padding: 0;
+}
+
+.file-not-found-title-group p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.file-not-found-path-box {
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file-not-found-path-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+.file-not-found-path-value {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-normal);
+  word-break: break-all;
+  user-select: all;
+  background: var(--code-background);
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.file-not-found-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.btn-remove-db {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #e74c3c;
+  color: #ffffff;
+  border: none;
+  padding: 9px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), opacity var(--transition);
+}
+
+.btn-remove-db:hover {
+  background: #c0392b;
+}
+
+.btn-remove-db:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-copy-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  padding: 9px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.btn-copy-path:hover {
+  background: var(--background-modifier-active);
+}
+
