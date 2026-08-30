@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import json
 import os
 import re
@@ -395,9 +396,87 @@ def cleanup_old_releases(keep=3, repo=None):
         print(f"[Aviso] Falha na limpeza de releases antigas: {e}")
 
 
+def sync_git_and_push(build_num, build_date):
+    """Verifica se ha arquivos nao commitados, realiza o commit com o numero da build e data atual, e faz o push para o repositorio remoto."""
+    if not build_date:
+        build_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        # 1. Verifica se ha arquivos nao commitados ou modificados
+        status_res = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=SCRIPT_DIR,
+        )
+        has_changes = bool(status_res.stdout.strip())
+
+        if has_changes:
+            print("\n[Git] Detectadas alteracoes nao commitadas. Adicionando arquivos (git add -A)...")
+            subprocess.run(["git", "add", "-A"], check=True, cwd=SCRIPT_DIR)
+
+            commit_msg = f"Build {build_num} ({build_date})"
+            print(f"[Git] Realizando commit: \"{commit_msg}\"...")
+            res_commit = subprocess.run(
+                ["git", "commit", "-m", commit_msg],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                cwd=SCRIPT_DIR,
+            )
+            if res_commit.returncode == 0:
+                print("[OK] Commit realizado com sucesso!")
+            else:
+                print(f"[Aviso] Falha ao commitar: {res_commit.stderr.strip() or res_commit.stdout.strip()}")
+        else:
+            print("\n[Git] Nenhuma alteracao pendente para commit.")
+
+        # 2. Faz o push para o repositorio remoto
+        print("[Git] Enviando commits para o GitHub (git push)...")
+        branch_res = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=SCRIPT_DIR,
+        )
+        branch = branch_res.stdout.strip() or "master"
+
+        push_res = subprocess.run(
+            ["git", "push", "origin", branch],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=SCRIPT_DIR,
+        )
+        if push_res.returncode == 0:
+            print(f"[OK] Git push para origin/{branch} concluido com sucesso!")
+            return True
+        else:
+            # Fallback para git push simples
+            push_fallback = subprocess.run(
+                ["git", "push"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                cwd=SCRIPT_DIR,
+            )
+            if push_fallback.returncode == 0:
+                print("[OK] Git push concluido com sucesso!")
+                return True
+            else:
+                print(f"[Aviso] Falha no git push:\n{push_res.stderr.strip() or push_fallback.stderr.strip()}")
+                return False
+    except Exception as e:
+        print(f"[Aviso] Erro durante operacao git commit/push: {e}")
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Gerador de Release Notes com IA e publicador de releases no GitHub.")
-    parser.add_argument("--publish", "-p", action="store_true", help="Gera notas e publica a release no GitHub com assets.")
+    parser.add_argument("--publish", "-p", action="store_true", help="Publica a release no GitHub (padrao: ativado).")
+    parser.add_argument("--no-publish", action="store_true", help="Gera as release notes sem publicar no GitHub.")
     parser.add_argument("--tag", type=str, help="Tag da release (ex: v1.0.0). Se omitido, usa a versao do manifesto.")
     parser.add_argument("--title", type=str, help="Titulo da release.")
     parser.add_argument("--repo", type=str, help="Repositorio no GitHub no formato 'usuario/repo' (ex: usuario/projeto).")
@@ -463,18 +542,13 @@ def main():
     print("----------------------------------------\n")
     print(f"[OK] Arquivo salvo em: {output_file}")
 
-    # Publicacao no GitHub
-    should_publish = args.publish
-
-    if not should_publish and sys.stdin.isatty():
-        try:
-            choice = input(f"Deseja publicar a release {tag} no GitHub agora? (s/N): ").strip().lower()
-            if choice in ("s", "sim", "y", "yes"):
-                should_publish = True
-        except (EOFError, KeyboardInterrupt):
-            pass
+    # Publicacao no GitHub (direto sem perguntar, a menos que --no-publish seja informado)
+    should_publish = not args.no_publish
 
     if should_publish:
+        # Sincroniza o Git: se houver alteracoes pendentes faz commit com Build + Data, e envia com git push
+        sync_git_and_push(build_num, build_date)
+
         published = publish_github_release(
             tag=tag,
             title=title,
@@ -486,8 +560,7 @@ def main():
         if published and not args.no_cleanup:
             cleanup_old_releases(cleanup_keep, repo=repo)
     else:
-        print("\nPara publicar esta release no GitHub com os binarios anexados, execute:")
-        print(f"  python generate_release_notes.py --publish")
+        print("\n[Info] Publicacao desativada (--no-publish).")
 
 
 if __name__ == "__main__":
