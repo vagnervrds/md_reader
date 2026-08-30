@@ -498,7 +498,19 @@
 
     viewer.innerHTML = `
       <div class="welcome">
+        <img src="/icon-192.png" alt="mdreader" class="welcome-icon">
+        <h2>mdreader</h2>
         <p>Arquivo removido do banco de dados com sucesso.</p>
+        <div class="welcome-actions">
+          <button class="welcome-btn" id="welcome-btn-open">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 11 15 14"/></svg>
+            Abrir arquivo
+          </button>
+          <button class="welcome-btn" id="welcome-btn-new">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo arquivo
+          </button>
+        </div>
       </div>
     `;
   }
@@ -952,6 +964,14 @@
 
   $('#btn-open').addEventListener('click', openFileDialog);
   $('#btn-new').addEventListener('click', newFile);
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#welcome-btn-open')) {
+      openFileDialog();
+    } else if (e.target.closest('#welcome-btn-new')) {
+      newFile();
+    }
+  });
 
   $('#btn-edit').addEventListener('click', async () => {
     if (!currentPath) { enterEditMode(''); return; }
