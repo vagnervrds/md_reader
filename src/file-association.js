@@ -95,15 +95,20 @@ function register() {
   const script = `
     $ErrorActionPreference = 'Stop'
     $exe = '${escapedExe}'
+    $exeDir = Split-Path -Path $exe -Parent
     $cmdVal = "\`"$exe\`" \`"%1\`""
     $iconVal = "\`"$exe\`",0"
 
     # Criar chave ProgID mdreader.file
     New-Item -Path 'HKCU:\\Software\\Classes\\mdreader.file' -Force | Out-Null
     Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\mdreader.file' -Name '(default)' -Value 'Arquivo Markdown (.md)'
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\mdreader.file' -Name 'FriendlyTypeName' -Value 'Arquivo Markdown (.md)'
 
     New-Item -Path 'HKCU:\\Software\\Classes\\mdreader.file\\DefaultIcon' -Force | Out-Null
     Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\mdreader.file\\DefaultIcon' -Name '(default)' -Value $iconVal
+
+    New-Item -Path 'HKCU:\\Software\\Classes\\mdreader.file\\shell\\open' -Force | Out-Null
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\mdreader.file\\shell\\open' -Name 'FriendlyAppName' -Value 'mdreader'
 
     New-Item -Path 'HKCU:\\Software\\Classes\\mdreader.file\\shell\\open\\command' -Force | Out-Null
     Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\mdreader.file\\shell\\open\\command' -Name '(default)' -Value $cmdVal
@@ -112,14 +117,43 @@ function register() {
     New-Item -Path 'HKCU:\\Software\\Classes\\.md' -Force | Out-Null
     Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\.md' -Name '(default)' -Value 'mdreader.file'
     Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\.md' -Name 'Content Type' -Value 'text/markdown'
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\.md' -Name 'PerceivedType' -Value 'text'
 
     # Adicionar OpenWithProgids
     New-Item -Path 'HKCU:\\Software\\Classes\\.md\\OpenWithProgids' -Force | Out-Null
     Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\.md\\OpenWithProgids' -Name 'mdreader.file' -Value ''
 
     # Registrar em Applications
+    New-Item -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe' -Force | Out-Null
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe' -Name '(default)' -Value 'mdreader'
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe' -Name 'FriendlyAppName' -Value 'mdreader'
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe' -Name 'ApplicationCompany' -Value 'mdreader'
+
+    New-Item -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe\\DefaultIcon' -Force | Out-Null
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe\\DefaultIcon' -Name '(default)' -Value $iconVal
+
+    New-Item -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe\\SupportedTypes' -Force | Out-Null
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe\\SupportedTypes' -Name '.md' -Value ''
+
+    New-Item -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe\\shell\\open' -Force | Out-Null
+    Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe\\shell\\open' -Name 'FriendlyAppName' -Value 'mdreader'
+
     New-Item -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe\\shell\\open\\command' -Force | Out-Null
     Set-ItemProperty -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe\\shell\\open\\command' -Name '(default)' -Value $cmdVal
+
+    # Registrar App Paths
+    New-Item -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\mdreader.exe' -Force | Out-Null
+    Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\mdreader.exe' -Name '(default)' -Value $exe
+    if ($exeDir) {
+      Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\mdreader.exe' -Name 'Path' -Value $exeDir
+    }
+
+    # Atualizar MuiCache para sobrescrever caches anteriores do Windows
+    $muiPath = 'HKCU:\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\MuiCache'
+    if (Test-Path $muiPath) {
+      Set-ItemProperty -Path $muiPath -Name "$exe.FriendlyAppName" -Value 'mdreader' -ErrorAction SilentlyContinue
+      Set-ItemProperty -Path $muiPath -Name "$exe.ApplicationCompany" -Value 'mdreader' -ErrorAction SilentlyContinue
+    }
 
     # Notificar o Windows Shell da mudanca
     try {
@@ -152,8 +186,12 @@ function unregister() {
     throw new Error('Apenas Windows é suportado para desregistrar associação');
   }
 
+  const exePath = getExecutablePath();
+  const escapedExe = exePath.replace(/'/g, "''");
+
   const script = `
     $ErrorActionPreference = 'SilentlyContinue'
+    $exe = '${escapedExe}'
 
     # Remover ProgID mdreader.file
     Remove-Item -Path 'HKCU:\\Software\\Classes\\mdreader.file' -Recurse -Force -ErrorAction SilentlyContinue
@@ -166,6 +204,14 @@ function unregister() {
 
     Remove-ItemProperty -Path 'HKCU:\\Software\\Classes\\.md\\OpenWithProgids' -Name 'mdreader.file' -ErrorAction SilentlyContinue
     Remove-Item -Path 'HKCU:\\Software\\Classes\\Applications\\mdreader.exe' -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\mdreader.exe' -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Limpar MuiCache
+    $muiPath = 'HKCU:\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\MuiCache'
+    if (Test-Path $muiPath) {
+      Remove-ItemProperty -Path $muiPath -Name "$exe.FriendlyAppName" -ErrorAction SilentlyContinue
+      Remove-ItemProperty -Path $muiPath -Name "$exe.ApplicationCompany" -ErrorAction SilentlyContinue
+    }
 
     # Notificar o Shell
     try {
