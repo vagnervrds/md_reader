@@ -39,6 +39,23 @@
   const btnUnregisterAssoc = $('#btn-unregister-assoc');
   const linkOpenDefaultApps = $('#link-open-defaultapps');
 
+  const btnDetails = $('#btn-details');
+  const fileDetailsModal = $('#modal-file-details');
+  const fileDetailsClose = $('#modal-file-details-close');
+  const btnCopyFilePath = $('#btn-copy-file-path');
+  const btnCopyFilePathLabel = $('#btn-copy-file-path-label');
+  const btnOpenFileFolder = $('#btn-open-file-folder');
+  const fdName = $('#fd-name');
+  const fdPath = $('#fd-path');
+  const fdSize = $('#fd-size');
+  const fdSizeBytes = $('#fd-size-bytes');
+  const fdLines = $('#fd-lines');
+  const fdWordsChars = $('#fd-words-chars');
+  const fdCreated = $('#fd-created');
+  const fdModified = $('#fd-modified');
+  const fdRegistered = $('#fd-registered');
+  const fdLastOpened = $('#fd-last-opened');
+
   let currentPath = null;
   let currentId = null;
   let searchTimeout = null;
@@ -363,6 +380,7 @@
     updateStatus();
     topbarTitle.textContent = result.name;
     document.title = `${result.name} - mdreader`;
+    btnDetails.style.display = '';
     loadRecentFiles();
   }
 
@@ -378,6 +396,7 @@
     isModified = false;
     topbarTitle.textContent = result.name;
     document.title = `${result.name} - mdreader`;
+    btnDetails.style.display = '';
     updateStatus();
     loadRecentFiles();
   }
@@ -387,6 +406,7 @@
     currentPath = null;
     topbarTitle.textContent = 'Novo arquivo';
     document.title = 'Novo arquivo - mdreader';
+    btnDetails.style.display = 'none';
     enterEditMode('');
   }
 
@@ -394,6 +414,7 @@
     currentPath = filePath || null;
     currentId = fileId || null;
     fileTagBar.style.display = 'none';
+    btnDetails.style.display = 'none';
 
     const displayName = fileName || (filePath ? filePath.split(/[\\/]/).pop() : 'Arquivo não encontrado');
     topbarTitle.textContent = displayName;
@@ -489,6 +510,7 @@
 
     currentPath = null;
     currentId = null;
+    btnDetails.style.display = 'none';
     topbarTitle.textContent = 'mdreader';
     document.title = 'mdreader';
     history.replaceState(null, '', '/');
@@ -526,6 +548,7 @@
       return;
     }
     currentId = data.id || null;
+    btnDetails.style.display = '';
     viewer.innerHTML = data.html;
     topbarTitle.textContent = data.name;
     document.title = `${data.name} - mdreader`;
@@ -545,6 +568,7 @@
     }
     currentPath = data.path;
     currentId = data.id;
+    btnDetails.style.display = '';
     viewer.innerHTML = data.html;
     topbarTitle.textContent = data.name;
     document.title = `${data.name} - mdreader`;
@@ -903,6 +927,104 @@
     settingsModalOverlay.classList.remove('active');
   }
 
+  function formatDateTime(isoString) {
+    if (!isoString) return '-';
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return '-';
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const seconds = String(d.getSeconds()).padStart(2, '0');
+      return `${day}/${month}/${year} às ${hours}:${minutes}:${seconds}`;
+    } catch (e) {
+      return isoString;
+    }
+  }
+
+  function formatNumber(n) {
+    return new Intl.NumberFormat('pt-BR').format(n || 0);
+  }
+
+  function openFileDetailsModal() {
+    if (!currentPath && !currentId) return;
+    fileDetailsModal.classList.add('active');
+    loadFileDetails();
+  }
+
+  function closeFileDetailsModal() {
+    fileDetailsModal.classList.remove('active');
+  }
+
+  async function loadFileDetails() {
+    fdName.textContent = 'Carregando...';
+    fdPath.textContent = currentPath || '-';
+    fdSize.textContent = '...';
+    fdSizeBytes.textContent = '';
+    fdLines.textContent = '...';
+    fdWordsChars.textContent = '';
+    fdCreated.textContent = '...';
+    fdModified.textContent = '...';
+    fdRegistered.textContent = '...';
+    fdLastOpened.textContent = '...';
+
+    const param = currentPath ? `path=${encodeURIComponent(currentPath)}` : `id=${encodeURIComponent(currentId)}`;
+    const data = await api(`/api/file-details?${param}`);
+
+    if (data.error || data.notFound) {
+      fdName.textContent = 'Erro ao carregar detalhes';
+      fdPath.textContent = currentPath || '-';
+      fdSize.textContent = '-';
+      fdSizeBytes.textContent = '';
+      fdLines.textContent = '-';
+      fdWordsChars.textContent = '';
+      fdCreated.textContent = '-';
+      fdModified.textContent = '-';
+      fdRegistered.textContent = '-';
+      fdLastOpened.textContent = '-';
+      return;
+    }
+
+    fdName.textContent = data.name || '-';
+    fdPath.textContent = data.path || '-';
+    fdSize.textContent = data.sizeFormatted || `${data.size} B`;
+    fdSizeBytes.textContent = `${formatNumber(data.size)} bytes`;
+    fdLines.textContent = `${formatNumber(data.lines)} linhas`;
+    fdWordsChars.textContent = `${formatNumber(data.words)} palavras • ${formatNumber(data.chars)} caracteres`;
+    fdCreated.textContent = formatDateTime(data.createdAt);
+    fdModified.textContent = formatDateTime(data.modifiedAt);
+    fdRegistered.textContent = formatDateTime(data.registeredAt);
+    fdLastOpened.textContent = formatDateTime(data.lastOpenedAt);
+  }
+
+  async function copyFilePathToClipboard() {
+    const pathText = fdPath.textContent;
+    if (!pathText || pathText === '-' || pathText === 'Carregando...') return;
+    try {
+      await navigator.clipboard.writeText(pathText);
+      btnCopyFilePath.classList.add('copied');
+      btnCopyFilePathLabel.textContent = 'Copiado!';
+      setTimeout(() => {
+        btnCopyFilePath.classList.remove('copied');
+        btnCopyFilePathLabel.textContent = 'Copiar endereço';
+      }, 2000);
+    } catch (err) {
+      // fallback
+    }
+  }
+
+  async function openFileFolderInExplorer() {
+    const pathText = fdPath.textContent;
+    if (!pathText || pathText === '-' || pathText === 'Carregando...') return;
+    await api('/api/open-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: pathText })
+    });
+  }
+
   async function loadAssociationStatus() {
     assocStatusBadge.textContent = 'Verificando...';
     assocStatusBadge.className = 'settings-badge';
@@ -1105,6 +1227,12 @@
   $('#modal-settings-close').addEventListener('click', closeSettingsModal);
   settingsModalOverlay.addEventListener('click', (e) => { if (e.target === settingsModalOverlay) closeSettingsModal(); });
 
+  btnDetails.addEventListener('click', openFileDetailsModal);
+  fileDetailsClose.addEventListener('click', closeFileDetailsModal);
+  fileDetailsModal.addEventListener('click', (e) => { if (e.target === fileDetailsModal) closeFileDetailsModal(); });
+  btnCopyFilePath.addEventListener('click', copyFilePathToClipboard);
+  btnOpenFileFolder.addEventListener('click', openFileFolderInExplorer);
+
   btnRegisterAssoc.addEventListener('click', registerAssociation);
   btnUnregisterAssoc.addEventListener('click', unregisterAssociation);
   linkOpenDefaultApps.addEventListener('click', (e) => {
@@ -1196,6 +1324,7 @@
       if (modalOverlay.classList.contains('active')) closeThemesModal();
       else if (folderModalOverlay.classList.contains('active')) closeFoldersModal();
       else if (settingsModalOverlay.classList.contains('active')) closeSettingsModal();
+      else if (fileDetailsModal.classList.contains('active')) closeFileDetailsModal();
       else if (formatMenu.style.display !== 'none') hideFormatMenu();
     }
     if (e.ctrlKey && e.key === 's' && editMode) { e.preventDefault(); saveFile(); }

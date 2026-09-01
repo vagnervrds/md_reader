@@ -68,6 +68,20 @@ func InitDB(appDir string) (*gorm.DB, error) {
 	db.Where("filePath LIKE ?", "%snapshot%").Delete(&FileTag{})
 	db.Where("path LIKE ?", "%.js").Delete(&RecentFile{})
 
+	// Backfill CreatedAt for existing recent files
+	var recents []RecentFile
+	db.Where("created_at IS NULL OR created_at = '0001-01-01 00:00:00+00:00' OR created_at = '0001-01-01 00:00:00'").Find(&recents)
+	for _, r := range recents {
+		var indexed IndexedFile
+		if errIdx := db.First(&indexed, "path = ?", r.Path).Error; errIdx == nil && !indexed.IndexedAt.IsZero() {
+			db.Model(&r).Update("created_at", indexed.IndexedAt)
+		} else if fi, errStat := os.Stat(r.Path); errStat == nil {
+			db.Model(&r).Update("created_at", fi.ModTime())
+		} else {
+			db.Model(&r).Update("created_at", r.LastOpened)
+		}
+	}
+
 	// Ensure default theme setting
 	var themeSetting Setting
 	if err := db.First(&themeSetting, "key = ?", "theme").Error; err != nil {

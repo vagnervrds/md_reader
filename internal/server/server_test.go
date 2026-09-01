@@ -165,3 +165,89 @@ func TestFileAndTagEndpoints(t *testing.T) {
 		t.Errorf("expected light, got %v", settingResp["value"])
 	}
 }
+
+func TestFileDetailsEndpoint(t *testing.T) {
+	db, tempDir := setupTestDB(t)
+	defer os.RemoveAll(tempDir)
+
+	srv := server.NewServer(db, nil, tempDir)
+
+	// 1. Create a markdown file with 4 lines
+	testFile := filepath.Join(tempDir, "notes.md")
+	content := "# Notes Title\nLine 2 content\nLine 3 content\nLine 4"
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// 2. Open file once via /api/file to register in DB
+	req := httptest.NewRequest("GET", "/api/file?path="+testFile, nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on get file, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 3. Test GET /api/file-details?path=...
+	req = httptest.NewRequest("GET", "/api/file-details?path="+testFile, nil)
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on get file details, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var details map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&details); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if details["name"] != "notes.md" {
+		t.Errorf("expected notes.md, got %v", details["name"])
+	}
+	if details["path"] != testFile {
+		t.Errorf("expected %s, got %v", testFile, details["path"])
+	}
+	if float64(details["lines"].(float64)) != 4 {
+		t.Errorf("expected 4 lines, got %v", details["lines"])
+	}
+	if details["sizeFormatted"] == "" {
+		t.Errorf("expected formatted size, got empty")
+	}
+	if details["createdAt"] == nil {
+		t.Errorf("expected createdAt, got nil")
+	}
+	if details["modifiedAt"] == nil {
+		t.Errorf("expected modifiedAt, got nil")
+	}
+	if details["registeredAt"] == nil {
+		t.Errorf("expected registeredAt, got nil")
+	}
+	if details["lastOpenedAt"] == nil {
+		t.Errorf("expected lastOpenedAt, got nil")
+	}
+
+	// 4. Test non-existent file
+	req = httptest.NewRequest("GET", "/api/file-details?path="+filepath.Join(tempDir, "missing.md"), nil)
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing file, got %d", w.Code)
+	}
+}
+
+func TestOpenFolderEndpoint(t *testing.T) {
+	db, tempDir := setupTestDB(t)
+	defer os.RemoveAll(tempDir)
+
+	srv := server.NewServer(db, nil, tempDir)
+
+	// 1. Invalid payload
+	req := httptest.NewRequest("POST", "/api/open-folder", bytes.NewReader([]byte(`{"path":""}`)))
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty path, got %d", w.Code)
+	}
+}
+
+

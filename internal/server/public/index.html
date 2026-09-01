@@ -68,6 +68,9 @@
         <span class="topbar-title" id="topbar-title">mdreader</span>
         <div class="spacer"></div>
         <span class="topbar-status" id="topbar-status"></span>
+        <button class="btn-icon" id="btn-details" title="Detalhes do arquivo" style="display:none">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </button>
         <button class="btn-icon" id="btn-edit" title="Editar">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -196,6 +199,74 @@
           <div class="settings-help">
             <p><strong>Como funciona:</strong> Configura a associação de extensão no registro do usuário (<code>HKEY_CURRENT_USER\Software\Classes</code>), sem precisar de permissões de Administrador.</p>
             <p style="margin-top: 6px;">Caso o Windows 10/11 solicite confirmação de aplicativo padrão, você também pode abrir as <a href="#" id="link-open-defaultapps">Configurações de Aplicativos Padrão do Windows</a>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-file-details">
+    <div class="modal modal-medium">
+      <div class="modal-header">
+        <h2>Detalhes do Arquivo</h2>
+        <button class="modal-close" id="modal-file-details-close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" id="file-details-body">
+        <div class="file-details-header-card">
+          <div class="file-details-title-row">
+            <svg class="file-details-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <h3 class="file-details-name" id="fd-name">-</h3>
+          </div>
+          <div class="file-details-path-container">
+            <span class="file-details-path-label">Local no computador:</span>
+            <div class="file-details-path-box">
+              <code class="file-details-path-text" id="fd-path">-</code>
+              <div class="file-details-path-actions">
+                <button class="btn-copy-path-modal" id="btn-copy-file-path" title="Copiar endereço completo">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  <span id="btn-copy-file-path-label">Copiar endereço</span>
+                </button>
+                <button class="btn-open-folder-modal" id="btn-open-file-folder" title="Abrir pasta no computador">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  <span>Abrir pasta</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="file-details-grid">
+          <div class="file-detail-card">
+            <div class="file-detail-label">Tamanho do Arquivo</div>
+            <div class="file-detail-value" id="fd-size">-</div>
+            <div class="file-detail-sub" id="fd-size-bytes">-</div>
+          </div>
+          <div class="file-detail-card">
+            <div class="file-detail-label">Quantidade de Linhas</div>
+            <div class="file-detail-value" id="fd-lines">-</div>
+            <div class="file-detail-sub" id="fd-words-chars">-</div>
+          </div>
+          <div class="file-detail-card">
+            <div class="file-detail-label">Data de Criação</div>
+            <div class="file-detail-value" id="fd-created">-</div>
+            <div class="file-detail-sub">Data de criação no disco</div>
+          </div>
+          <div class="file-detail-card">
+            <div class="file-detail-label">Data de Modificação</div>
+            <div class="file-detail-value" id="fd-modified">-</div>
+            <div class="file-detail-sub">Última alteração no disco</div>
+          </div>
+          <div class="file-detail-card">
+            <div class="file-detail-label">Cadastro no Sistema</div>
+            <div class="file-detail-value" id="fd-registered">-</div>
+            <div class="file-detail-sub">Registrado no mdreader</div>
+          </div>
+          <div class="file-detail-card">
+            <div class="file-detail-label">Última Abertura</div>
+            <div class="file-detail-value" id="fd-last-opened">-</div>
+            <div class="file-detail-sub">Última vez aberto no sistema</div>
           </div>
         </div>
       </div>

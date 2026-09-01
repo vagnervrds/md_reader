@@ -1518,3 +1518,156 @@ html, body {
   background: var(--background-modifier-active);
 }
 
+/* Modal medium */
+.modal.modal-medium {
+  width: 580px;
+  max-width: 95vw;
+}
+
+/* File Details Modal Styling */
+.file-details-header-card {
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.file-details-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.file-details-icon {
+  color: var(--text-accent);
+  flex-shrink: 0;
+}
+
+.file-details-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-normal);
+  word-break: break-all;
+}
+
+.file-details-path-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file-details-path-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+
+.file-details-path-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--code-background);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 6px 8px 6px 12px;
+}
+
+.file-details-path-text {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-normal);
+  word-break: break-all;
+  flex: 1;
+  user-select: all;
+}
+
+.file-details-path-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-copy-path-modal,
+.btn-open-folder-modal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+
+.btn-copy-path-modal:hover,
+.btn-open-folder-modal:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.btn-copy-path-modal.copied {
+  background: #2ecc71 !important;
+  color: #ffffff !important;
+  border-color: #2ecc71 !important;
+}
+
+.file-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.file-detail-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.file-detail-card-wide {
+  grid-column: span 2;
+}
+
+.file-detail-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.file-detail-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.file-detail-sub {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+@media (max-width: 600px) {
+  .file-details-grid {
+    grid-template-columns: 1fr;
+  }
+  .file-detail-card-wide {
+    grid-column: span 1;
+  }
+}
+
+

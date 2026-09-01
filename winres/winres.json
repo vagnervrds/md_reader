@@ -13,7 +13,7 @@
       "0409": {
         "identity": {
           "name": "mdreader",
-          "version": "1.0.0.16"
+          "version": "1.0.0.21"
         },
         "description": "Leitor de Markdown leve com interface web",
         "minimum-os": "win7",
@@ -28,20 +28,20 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "1.0.0.16",
-          "product_version": "1.0.0.16"
+          "file_version": "1.0.0.21",
+          "product_version": "1.0.0.21"
         },
         "info": {
           "0409": {
-            "Comments": "Build #16 (2026-08-30 19:44:57)",
+            "Comments": "Build #21 (2026-09-01 15:03:59)",
             "CompanyName": "mdreader",
             "FileDescription": "Leitor de Markdown",
-            "FileVersion": "1.0.0.16",
+            "FileVersion": "1.0.0.21",
             "InternalName": "mdreader",
             "LegalCopyright": "",
             "OriginalFilename": "mdreader.exe",
             "ProductName": "mdreader",
-            "ProductVersion": "1.0.0.16"
+            "ProductVersion": "1.0.0.21"
           }
         }
       }

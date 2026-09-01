@@ -8,6 +8,7 @@ type RecentFile struct {
 	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	Path       string    `gorm:"uniqueIndex;not null" json:"path"`
 	Name       string    `gorm:"not null" json:"name"`
+	CreatedAt  time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	LastOpened time.Time `gorm:"column:last_opened;autoCreateTime;autoUpdateTime" json:"last_opened"`
 }
 

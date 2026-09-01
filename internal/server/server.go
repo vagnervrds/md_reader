@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -20,6 +22,7 @@ import (
 	"mdreader/internal/dialog"
 	"mdreader/internal/markdown"
 	"mdreader/internal/scanner"
+	"mdreader/internal/util"
 )
 
 var tagColors = []string{
@@ -34,6 +37,20 @@ func getTagColor(name string) string {
 	}
 	abs := int(math.Abs(float64(hash)))
 	return tagColors[abs%len(tagColors)]
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	return fmt.Sprintf("%.2f %s", float64(b)/float64(div), units[exp])
 }
 
 func isSnapshotPath(p string) bool {
@@ -106,6 +123,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/api/file-raw", s.handleFileRaw)
 	r.Get("/api/file", s.handleGetFile)
 	r.Get("/api/file/{id}", s.handleGetFileByID)
+	r.Get("/api/file-details", s.handleGetFileDetails)
 	r.Put("/api/file", s.handleSaveFile)
 	r.Post("/api/file-new", s.handleNewFile)
 	r.Delete("/api/file-db", s.handleDeleteFileDB)
@@ -114,6 +132,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/api/open-dialog", s.handleOpenDialog)
 	r.Get("/api/save-dialog", s.handleSaveDialog)
 	r.Get("/api/folder-dialog", s.handleFolderDialog)
+	r.Post("/api/open-folder", s.handleOpenFolder)
 
 	// Recent Files API
 	r.Get("/api/recent-files", s.handleGetRecentFiles)
@@ -332,12 +351,37 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 
 	var recent database.RecentFile
 	if err := s.db.First(&recent, "path = ?", filePath).Error; err == nil {
+		if recent.CreatedAt.IsZero() {
+			var indexed database.IndexedFile
+			if errIdx := s.db.First(&indexed, "path = ?", filePath).Error; errIdx == nil && !indexed.IndexedAt.IsZero() {
+				recent.CreatedAt = indexed.IndexedAt
+			} else if fi, errStat := os.Stat(filePath); errStat == nil {
+				if ct := getFileCreationTime(fi); ct != nil {
+					recent.CreatedAt = *ct
+				} else {
+					recent.CreatedAt = fi.ModTime()
+				}
+			} else {
+				recent.CreatedAt = recent.LastOpened
+			}
+			s.db.Model(&recent).Update("created_at", recent.CreatedAt)
+		}
 		recent.LastOpened = time.Now()
-		s.db.Save(&recent)
+		s.db.Model(&recent).Update("last_opened", recent.LastOpened)
 	} else {
+		createdAt := time.Now()
+		var indexed database.IndexedFile
+		if errIdx := s.db.First(&indexed, "path = ?", filePath).Error; errIdx == nil && !indexed.IndexedAt.IsZero() {
+			createdAt = indexed.IndexedAt
+		} else if fi, errStat := os.Stat(filePath); errStat == nil {
+			if ct := getFileCreationTime(fi); ct != nil {
+				createdAt = *ct
+			}
+		}
 		recent = database.RecentFile{
 			Path:       filePath,
 			Name:       name,
+			CreatedAt:  createdAt,
 			LastOpened: time.Now(),
 		}
 		s.db.Create(&recent)
@@ -399,14 +443,133 @@ func (s *Server) handleGetFileByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if recent.CreatedAt.IsZero() {
+		var indexed database.IndexedFile
+		if errIdx := s.db.First(&indexed, "path = ?", recent.Path).Error; errIdx == nil && !indexed.IndexedAt.IsZero() {
+			recent.CreatedAt = indexed.IndexedAt
+		} else if fi, errStat := os.Stat(recent.Path); errStat == nil {
+			if ct := getFileCreationTime(fi); ct != nil {
+				recent.CreatedAt = *ct
+			} else {
+				recent.CreatedAt = fi.ModTime()
+			}
+		} else {
+			recent.CreatedAt = recent.LastOpened
+		}
+		s.db.Model(&recent).Update("created_at", recent.CreatedAt)
+	}
+
 	recent.LastOpened = time.Now()
-	s.db.Save(&recent)
+	s.db.Model(&recent).Update("last_opened", recent.LastOpened)
 
 	jsonResponse(w, http.StatusOK, map[string]any{
 		"id":   recent.ID,
 		"name": recent.Name,
 		"path": recent.Path,
 		"html": html,
+	})
+}
+
+func (s *Server) handleGetFileDetails(w http.ResponseWriter, r *http.Request) {
+	filePath := r.URL.Query().Get("path")
+	idStr := r.URL.Query().Get("id")
+
+	if filePath == "" && idStr != "" {
+		id, err := strconv.ParseUint(idStr, 10, 32)
+		if err == nil {
+			var recent database.RecentFile
+			if errDb := s.db.First(&recent, id).Error; errDb == nil {
+				filePath = recent.Path
+			}
+		}
+	}
+
+	if filePath == "" {
+		jsonError(w, http.StatusBadRequest, "Caminho do arquivo não fornecido")
+		return
+	}
+
+	if isSnapshotPath(filePath) {
+		jsonResponse(w, http.StatusNotFound, map[string]any{
+			"error":    "Arquivo não encontrado no disco",
+			"notFound": true,
+			"path":     filePath,
+		})
+		return
+	}
+
+	fi, err := os.Stat(filePath)
+	if err != nil {
+		jsonResponse(w, http.StatusNotFound, map[string]any{
+			"error":    "Arquivo não encontrado no disco",
+			"notFound": true,
+			"path":     filePath,
+			"name":     filepath.Base(filePath),
+		})
+		return
+	}
+
+	data, err := os.ReadFile(filePath)
+	linesCount := 0
+	charsCount := 0
+	wordsCount := 0
+	if err == nil {
+		charsCount = len([]rune(string(data)))
+		if len(data) > 0 {
+			linesCount = bytes.Count(data, []byte("\n")) + 1
+		}
+		wordsCount = len(strings.Fields(string(data)))
+	}
+
+	modTime := fi.ModTime()
+	creationTime := getFileCreationTime(fi)
+	if creationTime == nil {
+		creationTime = &modTime
+	}
+
+	var registeredAt time.Time
+	var lastOpenedAt *time.Time
+	var indexed database.IndexedFile
+	if errDb := s.db.First(&indexed, "path = ?", filePath).Error; errDb == nil && !indexed.IndexedAt.IsZero() {
+		registeredAt = indexed.IndexedAt
+	}
+
+	var recent database.RecentFile
+	if errDb2 := s.db.First(&recent, "path = ?", filePath).Error; errDb2 == nil {
+		if !recent.LastOpened.IsZero() {
+			t := recent.LastOpened
+			lastOpenedAt = &t
+		}
+		if registeredAt.IsZero() {
+			if !recent.CreatedAt.IsZero() {
+				registeredAt = recent.CreatedAt
+			} else if !recent.LastOpened.IsZero() {
+				registeredAt = recent.LastOpened
+			}
+		}
+	}
+
+	if registeredAt.IsZero() {
+		if creationTime != nil {
+			registeredAt = *creationTime
+		} else {
+			registeredAt = modTime
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]any{
+		"name":          filepath.Base(filePath),
+		"path":          filePath,
+		"dir":           filepath.Dir(filePath),
+		"size":          fi.Size(),
+		"sizeFormatted": formatBytes(fi.Size()),
+		"lines":         linesCount,
+		"words":         wordsCount,
+		"chars":         charsCount,
+		"createdAt":     creationTime,
+		"modifiedAt":    modTime,
+		"registeredAt":  registeredAt,
+		"lastOpenedAt":  lastOpenedAt,
 	})
 }
 
@@ -434,10 +597,14 @@ func (s *Server) handleSaveFile(w http.ResponseWriter, r *http.Request) {
 
 	var recent database.RecentFile
 	if err := s.db.First(&recent, "path = ?", body.Path).Error; err == nil {
+		if recent.CreatedAt.IsZero() {
+			recent.CreatedAt = time.Now()
+			s.db.Model(&recent).Update("created_at", recent.CreatedAt)
+		}
 		recent.LastOpened = time.Now()
-		s.db.Save(&recent)
+		s.db.Model(&recent).Update("last_opened", recent.LastOpened)
 	} else {
-		recent = database.RecentFile{Path: body.Path, Name: name, LastOpened: time.Now()}
+		recent = database.RecentFile{Path: body.Path, Name: name, CreatedAt: time.Now(), LastOpened: time.Now()}
 		s.db.Create(&recent)
 	}
 
@@ -582,6 +749,28 @@ func (s *Server) handleFolderDialog(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]string{"folderPath": folderPath})
 }
 
+func (s *Server) handleOpenFolder(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Path == "" {
+		jsonError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	if isSnapshotPath(body.Path) {
+		jsonError(w, http.StatusBadRequest, "Invalid path")
+		return
+	}
+
+	if err := util.OpenFileLocation(body.Path); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
 // ---------------- Recent Files Handlers ----------------
 
 func (s *Server) handleGetRecentFiles(w http.ResponseWriter, r *http.Request) {
@@ -616,11 +805,35 @@ func (s *Server) handlePostRecentFile(w http.ResponseWriter, r *http.Request) {
 	name := filepath.Base(body.FilePath)
 	var recent database.RecentFile
 	if err := s.db.First(&recent, "path = ?", body.FilePath).Error; err == nil {
+		if recent.CreatedAt.IsZero() {
+			var indexed database.IndexedFile
+			if errIdx := s.db.First(&indexed, "path = ?", body.FilePath).Error; errIdx == nil && !indexed.IndexedAt.IsZero() {
+				recent.CreatedAt = indexed.IndexedAt
+			} else if fi, errStat := os.Stat(body.FilePath); errStat == nil {
+				if ct := getFileCreationTime(fi); ct != nil {
+					recent.CreatedAt = *ct
+				} else {
+					recent.CreatedAt = fi.ModTime()
+				}
+			} else {
+				recent.CreatedAt = recent.LastOpened
+			}
+			s.db.Model(&recent).Update("created_at", recent.CreatedAt)
+		}
 		recent.LastOpened = time.Now()
-		s.db.Save(&recent)
+		s.db.Model(&recent).Update("last_opened", recent.LastOpened)
 		jsonResponse(w, http.StatusOK, recent)
 	} else {
-		recent = database.RecentFile{Path: body.FilePath, Name: name, LastOpened: time.Now()}
+		createdAt := time.Now()
+		var indexed database.IndexedFile
+		if errIdx := s.db.First(&indexed, "path = ?", body.FilePath).Error; errIdx == nil && !indexed.IndexedAt.IsZero() {
+			createdAt = indexed.IndexedAt
+		} else if fi, errStat := os.Stat(body.FilePath); errStat == nil {
+			if ct := getFileCreationTime(fi); ct != nil {
+				createdAt = *ct
+			}
+		}
+		recent = database.RecentFile{Path: body.FilePath, Name: name, CreatedAt: createdAt, LastOpened: time.Now()}
 		s.db.Create(&recent)
 		jsonResponse(w, http.StatusOK, recent)
 	}
